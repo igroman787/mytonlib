@@ -5,7 +5,7 @@ import time
 import json
 import base64
 import socket
-import x25519
+import x25519 # pip3 install x25519
 import hashlib
 import secrets
 import binascii
