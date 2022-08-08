@@ -14,6 +14,8 @@ from nacl.signing import SigningKey, VerifyKey # pip3 install pynacl
 from Crypto.Cipher import AES # pip3 install pycrypto
 from Crypto.Util import Counter
 
+from config import Config
+from settings import Settings
 
 class Adnl():
 	def __init__(self):
@@ -267,13 +269,21 @@ class Adnl():
 #end class
 
 
-
-host = "5.9.10.47"
-port = 19949
 pubkeyB64 = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk="
+web_config = Config(Settings().CONFIG_URL)
+parsed_config = web_config.get()
 
 adnl = Adnl()
-adnl.Connect(host, port, pubkeyB64)
+host = "5.9.10.47"
+port = 19949
+
+c_host = parsed_config.lite_servers[0].ipv4
+c_port = parsed_config.lite_servers[0].port
+
+adnl.Connect(
+	c_host,
+	c_port,
+	pubkeyB64)
 
 for i in range(3):
 	time.sleep(1)

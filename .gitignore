@@ -1,0 +1,6 @@
+/venv/
+/.venv/
+/.idea/
+bin
+**/__pycache__/**
+*.py[cod]
