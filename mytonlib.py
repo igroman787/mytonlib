@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
+import os
 import time
 import json
 import base64
@@ -9,13 +10,15 @@ import x25519 # pip3 install x25519
 import hashlib
 import secrets
 import binascii
-from urllib.request import urlopen
+import urllib.request
 from nacl.signing import SigningKey, VerifyKey # pip3 install pynacl
 from Crypto.Cipher import AES # pip3 install pycrypto
 from Crypto.Util import Counter
 
+from schemes import Schemes, BytesSlicer
 
-class Adnl():
+
+class Adnl:
 	def __init__(self):
 		self.local = None
 		self.sock = None
@@ -26,6 +29,19 @@ class Adnl():
 		self.tx_nonce = None
 		self.rx_cipher = None
 		self.tx_cipher = None
+		self.schemes = None
+		self.LoadSchemes()
+	#end define
+	
+	def LoadSchemes(self):
+		filepath = "/usr/src/ton/tl/generate/scheme/lite_api.tl"
+		tmp_filepath = "/tmp/lite_api.tl"
+		url = "https://raw.githubusercontent.com/ton-blockchain/ton/master/tl/generate/scheme/lite_api.tl"
+		if os.path.isfile(filepath):
+			self.schemes = Schemes(filepath)
+		else:
+			urllib.request.urlretrieve(url, tmp_filepath)
+			self.schemes = Schemes(tmp_filepath)
 	#end define
 	
 	def AddLog(self, text, type):
@@ -35,8 +51,8 @@ class Adnl():
 			print(text)
 	#end define
 
-	def Connect(self, host, port, pubkeyB64):
-		handshake = self.CreateHandshake(pubkeyB64)
+	def Connect(self, host, port, pubkey):
+		handshake = self.CreateHandshake(pubkey)
 
 		# create rx, tx cipher
 		self.rx_cipher = self.CreateAesCipher(self.rx_key, self.rx_nonce)
@@ -51,8 +67,8 @@ class Adnl():
 		self.GetDatagram()
 	#end define
 
-	def CreateHandshake(self, pubkeyB64):
-		other_pub = base64.b64decode(pubkeyB64) # 32 bytes, ed25519
+	def CreateHandshake(self, pubkey):
+		other_pub = base64.b64decode(pubkey) # 32 bytes, ed25519
 		other_id = self.GetId(other_pub) # 32 bytes
 
 		# create local private key
@@ -206,74 +222,67 @@ class Adnl():
 	
 	def Query(self, data):
 		# send
-		scheme_sid = self.CRC32("adnl.message.query query_id:int256 query:bytes = adnl.Message")
+		send_scheme = self.schemes.GetSchemeByName("adnl.message.query")
 		query_id = secrets.token_bytes(32)
 		dlen = self.TlLen(data)
 		data = self.AlignBytes(dlen + data, 16)
-		sdata = scheme_sid + query_id + data
+		sdata = send_scheme.id + query_id + data
 		self.SendDatagram(sdata)
 		
 		# get
-		rdata = self.GetDatagram()
-		print("Query rdata:", rdata.hex())
-		scheme_rid = self.CRC32("adnl.message.answer query_id:int256 answer:bytes = adnl.Message")
-		if rdata[0:4] != scheme_rid:
-			raise Exception("Adnl query error: scheme_rid != adnl.message.answer")
-		if rdata[4:36] != query_id:
-			raise Exception("Adnl query error: query_sid != query_rid")
-		result = rdata[36:]
-		return result
+		read_data = self.GetDatagram()
+		slicer = BytesSlicer(read_data)
+		read_scheme_id = slicer(4)
+		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
+		data = read_scheme.Deserialize(slicer)
+		if query_id.hex() != data.query_id:
+			raise Exception("Adnl query error: query_id does not match")
+		return data.answer
 	#end define
 	
 	def LiteServerQuery(self, data):
 		# send
-		scheme_sid = self.CRC32("liteServer.query data:bytes = Object")
+		send_scheme = self.schemes.GetSchemeByName("liteServer.query")
 		dlen = self.TlLen(data)
 		data = self.AlignBytes(dlen + data, 8)
-		sdata = scheme_sid + data
+		send_data = send_scheme.id + data
 		
 		# get
-		rdata = self.Query(sdata)
-		rdata = self.GetTl(rdata)
-		return rdata
+		read_data = self.Query(send_data)
+		read_data = self.GetTl(read_data)
+		return read_data
+	#end define
+	
+	def Get(self, function_name):
+		# send
+		send_scheme = self.schemes.GetSchemeByName(f"liteServer.{function_name}")
+		
+		# get
+		read_data = self.LiteServerQuery(send_scheme.id)
+		slicer = BytesSlicer(read_data)
+		read_scheme_id = slicer(4)
+		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
+		result = read_scheme.Deserialize(slicer)
+		return result
 	#end define
 	
 	def GetMasterchainInfo(self):
-		# send
-		scheme_sid = self.CRC32("liteServer.getMasterchainInfo = liteServer.MasterchainInfo")
-		
-		# get
-		rdata = self.LiteServerQuery(scheme_sid)
-		scheme_rid = self.CRC32("liteServer.masterchainInfo last:tonNode.blockIdExt state_root_hash:int256 init:tonNode.zeroStateIdExt = liteServer.MasterchainInfo")
-		if rdata[0:4] != scheme_rid:
-			raise Exception("GetMasterchainInfo error: scheme_rid != liteServer.masterchainInfo.answer")
-		data = rdata[4:]
-		result = dict()
-		last = dict()
-		last["workchain"] = self.Int(data[0:4]) # 4 bytes
-		#last["shard"] = self.Int(data[4:12])
-		last["shard"] = data[4:12].hex()  # 4 bytes
-		last["seqno"] = self.Int(data[12:16]) # 4 bytes
-		last["root_hash"] = data[16:48].hex() # 32 bytes
-		last["file_hash"] = data[48:80].hex() # 32 bytes
-		result["last"] = last
-		result["state_root_hash"] = data[80:112].hex() # 32 bytes
-		init = dict()
-		init["workchain"] = self.Int(data[112:116]) # 4 bytes
-		init["root_hash"] = data[116:148].hex() # 32 bytes
-		init["file_hash"] = data[148:180].hex() # 32 bytes
-		result["init"] = init
-		return result
+		return self.Get("getMasterchainInfo")
+	#end define
+	
+	def GetTime(self):
+		return self.Get("getTime")
+	#end define
 #end class
 
 
 
 host = "5.9.10.47"
 port = 19949
-pubkeyB64 = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk="
+pubkey = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk="
 
 adnl = Adnl()
-adnl.Connect(host, port, pubkeyB64)
+adnl.Connect(host, port, pubkey)
 
 for i in range(3):
 	time.sleep(1)
@@ -283,3 +292,10 @@ for i in range(3):
 data = adnl.GetMasterchainInfo()
 print("GetMasterchainInfo:")
 print(json.dumps(data, indent=4))
+print(data.last.seqno)
+
+data = adnl.GetTime()
+print("GetTime:")
+print(json.dumps(data, indent=4))
+
+
