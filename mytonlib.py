@@ -279,11 +279,11 @@ port = 19949
 
 c_host = parsed_config.lite_servers[0].ipv4
 c_port = parsed_config.lite_servers[0].port
-
+c_pubkey = parsed_config.lite_servers[0].server_id.key
 adnl.Connect(
 	c_host,
 	c_port,
-	pubkeyB64)
+	c_pubkey)
 
 for i in range(3):
 	time.sleep(1)

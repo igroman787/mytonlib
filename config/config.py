@@ -10,4 +10,8 @@ class Config:
     def get(self) -> GlobalConfig:
         response = requests.get(self.url)
         response.raise_for_status()
-        return GlobalConfig.parse_raw(response.text)
+        try:
+            return GlobalConfig.parse_raw(response.text)
+        except Exception as ex:
+            print(ex)
+            raise ex

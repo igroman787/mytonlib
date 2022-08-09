@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import BaseModel
 from pydantic import Field
 
@@ -8,4 +9,4 @@ class DHTConfig(BaseModel):
     type_: str = Field(alias='@type')
     k: int
     a: int
-    static_nodes: DHTNodes
+    static_nodes: Optional[DHTNodes]
