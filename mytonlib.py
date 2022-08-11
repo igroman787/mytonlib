@@ -16,9 +16,11 @@ from Crypto.Util import Counter
 
 from config import Config
 from settings import Settings
+from adnl import models
+
 
 class Adnl():
-	def __init__(self):
+	def __init__(self, host=None, port=None, pub_key=None):
 		self.local = None
 		self.sock = None
 		self.local_priv = None
@@ -28,6 +30,9 @@ class Adnl():
 		self.tx_nonce = None
 		self.rx_cipher = None
 		self.tx_cipher = None
+		self.port = port
+		self.host = host
+		self.pub_key = pub_key
 	#end define
 	
 	def AddLog(self, text, type):
@@ -37,8 +42,8 @@ class Adnl():
 			print(text)
 	#end define
 
-	def Connect(self, host, port, pubkeyB64):
-		handshake = self.CreateHandshake(pubkeyB64)
+	def Connect(self):
+		handshake = self.CreateHandshake(self.pub_key)
 
 		# create rx, tx cipher
 		self.rx_cipher = self.CreateAesCipher(self.rx_key, self.rx_nonce)
@@ -47,7 +52,7 @@ class Adnl():
 		# send handshake
 		self.sock = socket.socket()
 		self.sock.settimeout(3)
-		self.sock.connect((host, port))
+		self.sock.connect((self.host, self.port))
 		self.sock.send(handshake)
 
 		self.GetDatagram()
@@ -250,46 +255,28 @@ class Adnl():
 		if rdata[0:4] != scheme_rid:
 			raise Exception("GetMasterchainInfo error: scheme_rid != liteServer.masterchainInfo.answer")
 		data = rdata[4:]
-		result = dict()
-		last = dict()
-		last["workchain"] = self.Int(data[0:4]) # 4 bytes
-		#last["shard"] = self.Int(data[4:12])
-		last["shard"] = data[4:12].hex()  # 4 bytes
-		last["seqno"] = self.Int(data[12:16]) # 4 bytes
-		last["root_hash"] = data[16:48].hex() # 32 bytes
-		last["file_hash"] = data[48:80].hex() # 32 bytes
-		result["last"] = last
-		result["state_root_hash"] = data[80:112].hex() # 32 bytes
-		init = dict()
-		init["workchain"] = self.Int(data[112:116]) # 4 bytes
-		init["root_hash"] = data[116:148].hex() # 32 bytes
-		init["file_hash"] = data[148:180].hex() # 32 bytes
-		result["init"] = init
-		return result
+		# result = dict()
+		# last = dict()
+		# last["workchain"] = self.Int(data[0:4]) # 4 bytes
+		# #last["shard"] = self.Int(data[4:12])
+		# last["shard"] = data[4:12].hex()  # 4 bytes
+		# last["seqno"] = self.Int(data[12:16]) # 4 bytes
+		# last["root_hash"] = data[16:48].hex() # 32 bytes
+		# last["file_hash"] = data[48:80].hex() # 32 bytes
+		# result["last"] = last
+		# result["state_root_hash"] = data[80:112].hex() # 32 bytes
+		# init = dict()
+		# init["workchain"] = self.Int(data[112:116]) # 4 bytes
+		# init["root_hash"] = data[116:148].hex() # 32 bytes
+		# init["file_hash"] = data[148:180].hex() # 32 bytes
+		# result["init"] = init
+		return models.MasterchainInfo.unpack(data)
+
+	def __enter__(self):
+		self.Connect()
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self.sock.shutdown(socket.SHUT_RDWR)
+
 #end class
-
-
-pubkeyB64 = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk="
-web_config = Config(Settings().CONFIG_URL)
-parsed_config = web_config.get()
-
-adnl = Adnl()
-host = "5.9.10.47"
-port = 19949
-
-c_host = parsed_config.lite_servers[0].ipv4
-c_port = parsed_config.lite_servers[0].port
-c_pubkey = parsed_config.lite_servers[0].server_id.key
-adnl.Connect(
-	c_host,
-	c_port,
-	c_pubkey)
-
-for i in range(3):
-	time.sleep(1)
-	adnl.Ping()
-#end for
-
-data = adnl.GetMasterchainInfo()
-print("GetMasterchainInfo:")
-print(json.dumps(data, indent=4))
