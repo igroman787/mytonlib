@@ -22,5 +22,8 @@ from adnl.tl_object import models
 # use result dictionary as you wish
 >> print(result)
 { ... }
+
+# reverse serializing
+data: bytes = model.MasterchainInfo.pack(result)
 -------------------------------------------------------------------------------
 """

@@ -9,6 +9,9 @@ class BaseTL(ABC):
     def size(self):
         pass
 
+    def pack(self, data) -> bytes:
+        return b''
+
 
 class TLObject(BaseTL):
     """
@@ -30,6 +33,9 @@ class TLObject(BaseTL):
         offset = self.size() + pos
         return data_bytes[pos: offset]
 
+    def pack(self, *args, **kwargs) -> bytes:
+        return b''
+
     def size(self) -> int:
         """
         Return TL object size in bytes
@@ -49,6 +55,14 @@ class TLInt(TLObject):
         b = super().unpack(data_bytes, pos)
         return int.from_bytes(b, byteorder="little", signed=True)
 
+    def pack(self, value: int) -> bytes:
+        return int.to_bytes(
+            value,
+            self.size(),
+            byteorder="little",
+            signed=True
+        )
+
 
 class TLInt256(TLObject):
     def __init__(self):
@@ -57,6 +71,9 @@ class TLInt256(TLObject):
     def unpack(self, data_bytes, pos=0) -> str:
         return super().unpack(data_bytes, pos).hex()
 
+    def pack(self, hex_value: str) -> bytearray:
+        return bytearray.fromhex(hex_value)
+
 
 class TLLong(TLObject):
     def __init__(self):
@@ -64,6 +81,9 @@ class TLLong(TLObject):
 
     def unpack(self, data_bytes, pos=0) -> str:
         return super().unpack(data_bytes, pos).hex()
+
+    def pack(self, hex_value: str) -> bytearray:
+        return bytearray.fromhex(hex_value)
 
 
 class TLMetaObject(BaseTL):
@@ -117,5 +137,21 @@ class TLMetaObject(BaseTL):
             field = getattr(cls, field_name)
             result[field_name] = field.unpack(data_bytes, cur_pos)
             cur_pos += field.size()
+        return result
+
+    @classmethod
+    def pack(cls, **kwargs) -> bytes:
+        result = b''
+        field_names = cls.__fields_names__()
+        for field_name in field_names:
+            current_data = kwargs.get(field_name)
+            if not current_data:
+                raise Exception(f'Field {field_name} required')
+
+            field = getattr(cls, field_name)
+            if isinstance(field, TLMetaObject):
+                result += field.pack(**current_data)
+            else:
+                result += field.pack(current_data)
         return result
 
