@@ -158,7 +158,7 @@ class Adnl():
 		return result
 	#end define
 	
-	def AlignBytes(self, data, alen=8):
+	def AlignBytes(self, data, alen=4):
 		dlen = len(data)
 		nlen = 0
 		if dlen % alen != 0:
@@ -179,14 +179,12 @@ class Adnl():
 	#end define
 	
 	def GetTl(self, data):
-		if data[0] == bytes.fromhex("fe"):
-			buff = data[1:4]
-		else:
-			buff = data[0:1]
+		slicer = BytesSlicer(data)
+		buff = slicer(1)
+		if buff == bytes.fromhex("fe"):
+			buff = slicer(3)
 		dlen = int.from_bytes(buff, byteorder="little")
-		start = len(buff)
-		end = start + dlen
-		rdata = data[start:end]
+		rdata = slicer(dlen)
 		return rdata
 	#end define
 	
@@ -216,7 +214,7 @@ class Adnl():
 		scheme_sid = self.CRC32("adnl.message.query query_id:int256 query:bytes = adnl.Message")
 		query_id = secrets.token_bytes(32)
 		dlen = self.TlLen(data)
-		data = self.AlignBytes(dlen + data, 16)
+		data = self.AlignBytes(dlen + data)
 		sdata = scheme_sid + query_id + data
 		self.SendDatagram(sdata)
 		
@@ -236,7 +234,7 @@ class Adnl():
 		# send
 		scheme_sid = self.CRC32("liteServer.query data:bytes = Object")
 		dlen = self.TlLen(data)
-		data = self.AlignBytes(dlen + data, 8)
+		data = self.AlignBytes(dlen + data)
 		sdata = scheme_sid + data
 		
 		# get
@@ -279,4 +277,16 @@ class Adnl():
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.sock.shutdown(socket.SHUT_RDWR)
 
+#end class
+
+class BytesSlicer:
+	def __init__(self, data):
+		self.bytes = data
+	#end define
+
+	def __call__(self, dlen):
+		data = self.bytes[:dlen]
+		self.bytes = self.bytes[dlen:]
+		return data
+	#end define
 #end class
