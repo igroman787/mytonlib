@@ -15,7 +15,8 @@ from nacl.signing import SigningKey, VerifyKey # pip3 install pynacl
 from Crypto.Cipher import AES # pip3 install pycrypto
 from Crypto.Util import Counter
 
-from schemes import Schemes, BytesSlicer
+from tl import TlSchemes, BytesSlicer, Int, TlLen
+from utils import ParseAddr
 
 
 class Adnl:
@@ -29,19 +30,16 @@ class Adnl:
 		self.tx_nonce = None
 		self.rx_cipher = None
 		self.tx_cipher = None
-		self.schemes = None
+		self.schemes = TlSchemes()
 		self.LoadSchemes()
 	#end define
 	
 	def LoadSchemes(self):
-		filepath = "/usr/src/ton/tl/generate/scheme/lite_api.tl"
-		tmp_filepath = "/tmp/lite_api.tl"
-		url = "https://raw.githubusercontent.com/ton-blockchain/ton/master/tl/generate/scheme/lite_api.tl"
-		if os.path.isfile(filepath):
-			self.schemes = Schemes(filepath)
+		dir = "/usr/src/ton/tl/generate/scheme/"
+		if os.path.isdir(dir):
+			self.schemes.LoadSchemes(dir)
 		else:
-			urllib.request.urlretrieve(url, tmp_filepath)
-			self.schemes = Schemes(tmp_filepath)
+			raise Exception("TL schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
 	#end define
 	
 	def AddLog(self, text, type):
@@ -161,13 +159,7 @@ class Adnl:
 		return result
 	#end define
 	
-	def CRC32(self, text):
-		buff = binascii.crc32(text.encode('utf8'))
-		result = int.to_bytes(buff, length=4, byteorder="little")
-		return result
-	#end define
-	
-	def AlignBytes(self, data, alen=8):
+	def AlignBytes(self, data, alen=4):
 		dlen = len(data)
 		nlen = 0
 		if dlen % alen != 0:
@@ -177,46 +169,21 @@ class Adnl:
 		return result
 	#end define
 	
-	def TlLen(self, data):
-		dlen = len(data)
-		if dlen < 254:
-			dlen = dlen.to_bytes(1, byteorder="little")
-		else:
-			buff = bytes.fromhex("fe")
-			dlen = buff + dlen.to_bytes(3, byteorder="little")
-		return dlen
-	#end define
-	
-	def GetTl(self, data):
-		if data[0] == bytes.fromhex("fe"):
-			buff = data[1:4]
-		else:
-			buff = data[0:1]
-		dlen = int.from_bytes(buff, byteorder="little")
-		start = len(buff)
-		end = start + dlen
-		rdata = data[start:end]
-		return rdata
-	#end define
-	
-	def Int(self, data):
-		return int.from_bytes(data, byteorder="little", signed=True)
-	#end define
-	
 	def Ping(self):
 		# send
-		scheme_sid = self.CRC32("tcp.ping random_id:long = tcp.Pong")
-		random_sid = secrets.token_bytes(8)
-		sdata = scheme_sid + random_sid
-		self.SendDatagram(sdata)
+		send_scheme = self.schemes.GetSchemeByName("tcp.ping")
+		random_id = secrets.token_bytes(8)
+		send_data = send_scheme.id + random_id
+		self.SendDatagram(send_data)
 		
 		# get
-		rdata = self.GetDatagram()
-		scheme_rid = self.CRC32("tcp.pong random_id:long = tcp.Pong")
-		if rdata[0:4] != scheme_rid:
-			raise Exception("Adnl ping error: scheme_rid != tcp.pong")
-		if rdata[4:] != random_sid:
-			raise Exception("Adnl ping error: random_rid != random_sid")
+		read_data = self.GetDatagram()
+		slicer = BytesSlicer(read_data)
+		read_scheme_id = slicer(4)
+		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
+		data = read_scheme.Deserialize(slicer)
+		if data.random_id != Int(random_id):
+			raise Exception("Adnl ping error: random_id does not match")
 		self.AddLog("ping - ok", "debug")
 	#end define
 	
@@ -224,13 +191,15 @@ class Adnl:
 		# send
 		send_scheme = self.schemes.GetSchemeByName("adnl.message.query")
 		query_id = secrets.token_bytes(32)
-		dlen = self.TlLen(data)
-		data = self.AlignBytes(dlen + data, 16)
-		sdata = send_scheme.id + query_id + data
-		self.SendDatagram(sdata)
+		dlen = TlLen(data)
+		data = self.AlignBytes(dlen + data)
+		send_data = send_scheme.id + query_id + data
+		self.SendDatagram(send_data)
+		print(f"send_data: {send_data.hex()}")
 		
 		# get
 		read_data = self.GetDatagram()
+		print(f"read_data: {read_data.hex()}")
 		slicer = BytesSlicer(read_data)
 		read_scheme_id = slicer(4)
 		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
@@ -243,25 +212,27 @@ class Adnl:
 	def LiteServerQuery(self, data):
 		# send
 		send_scheme = self.schemes.GetSchemeByName("liteServer.query")
-		dlen = self.TlLen(data)
-		data = self.AlignBytes(dlen + data, 8)
+		dlen = TlLen(data)
+		data = self.AlignBytes(dlen + data)
 		send_data = send_scheme.id + data
 		
 		# get
 		read_data = self.Query(send_data)
-		read_data = self.GetTl(read_data)
 		return read_data
 	#end define
 	
-	def Get(self, function_name):
+	def Get(self, function_name, **data):
 		# send
 		send_scheme = self.schemes.GetSchemeByName(f"liteServer.{function_name}")
+		send_data = send_scheme.id + send_scheme.Serialize(**data)
 		
 		# get
-		read_data = self.LiteServerQuery(send_scheme.id)
+		read_data = self.LiteServerQuery(send_data)
 		slicer = BytesSlicer(read_data)
 		read_scheme_id = slicer(4)
 		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
+		print(f"scheme_id: {read_scheme_id.hex()}")
+		print(f"scheme: {read_scheme.name}")
 		result = read_scheme.Deserialize(slicer)
 		return result
 	#end define
@@ -272,6 +243,13 @@ class Adnl:
 	
 	def GetTime(self):
 		return self.Get("getTime")
+	#end define
+	
+	def GetAccountState(self, input_addr):
+		data = self.Get("getMasterchainInfo")
+		workchain, addr = ParseAddr(input_addr)
+		account = {"workchain":workchain, "id":addr}
+		return self.Get("getAccountState", id=data.last, account=account)
 	#end define
 #end class
 
@@ -297,5 +275,9 @@ print(data.last.seqno)
 data = adnl.GetTime()
 print("GetTime:")
 print(json.dumps(data, indent=4))
+
+data = adnl.GetAccountState("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
+print(f"GetAccountState: {data}")
+#print(json.dumps(data, indent=4))
 
 
