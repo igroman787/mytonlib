@@ -278,6 +278,7 @@ print(json.dumps(data, indent=4))
 
 data = adnl.GetAccountState("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
 print(f"GetAccountState: {data}")
+print(f"state: {data.state.hex()}")
 #print(json.dumps(data, indent=4))
 
 

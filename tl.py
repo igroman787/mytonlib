@@ -65,6 +65,15 @@ class TlScheme:
 		self.Parse(text)
 	#end define
 	
+	def __str__(self):
+		result = f"<TlScheme {self.name}>"
+		return result
+	#end define
+	
+	def __repr__(self):
+		return self.__str__()
+	#end define
+	
 	def Parse(self, text):
 		end = ';'
 		if end in text:
