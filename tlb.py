@@ -4,6 +4,7 @@
 import os
 import binascii
 from bitstring import BitStream # pip3 install bitstring
+from mytypes import Cell, Slice, Dict, cell2dict
 
 
 class TlbSchemes:
@@ -41,7 +42,7 @@ class TlbSchemes:
 			else:
 				buff += line
 			scheme = TlbScheme(line)
-			if scheme.name == None:
+			if scheme.class_name == None:
 				continue
 			self.schemes.append(scheme)
 		#end for
@@ -75,71 +76,77 @@ class TlbSchemes:
 				return scheme
 	#end define
 	
-	def deserialize(self, data, expected):
-		if type(data) == BitStream:
-			bit_stream = data
-		if type(data) == bytes:
-			bit_stream = BitStream(data)
-		elif type(data) != BitStream:
-			raise Exception("Deserialize error: Input parameter type must be BitStream")
+	def deserialize(self, var, expected):
+		if type(var) == Slice:
+			slice = var
+		elif type(var) == Cell:
+			slice = Slice(var)
+		else:
+			print(f"var: {type(var)} -> {var}")
+			raise Exception("Tlb deserialize error: Input parameter type must be Slice")
 		#end if
 		
+		bit_stream = slice.bit_stream
 		scheme = self.get_scheme_using_prefix(bit_stream, expected)
 		print(f"deserialize: scheme: {scheme.name}")
 		result = Dict()
+		result["@name"] = scheme.name
 		self.buff_result = result
 		for var_name, var_type in scheme.vars.items():
-			if var_type == "int8":
-				buff = bit_stream.read(8)
-				var_value = buff.int
-			elif var_type == "int32":
-				buff = bit_stream.read(32)
-				var_value = buff.int
-			elif var_type == "uint32":
-				buff = bit_stream.read(32)
-				var_value = buff.uint
-			elif var_type == "uint64":
-				buff = bit_stream.read(64)
-				var_value = buff.uint
-			elif var_type == "bits256":
-				buff = bit_stream.read(256)
-				var_value = buff.hex
-			elif var_type.startswith('('):
-				var_value = self.deser_step2(var_type, bit_stream)
-				if var_value == "break":
-					break
-			else:
-				var_value = self.deserialize(bit_stream, var_type)
+			var_value = self.deser_types(slice, var_type)
 			result[var_name] = var_value
-			print(f"buff_result: {self.buff_result}")
-		result.toClass()
+			#print(f"buff_result: {self.buff_result}")
+		result.to_class()
 		return result
 	#end define
 	
-	def deser_step2(self, var_type, bit_stream):
+	def deser_step2(self, var_type, slice):
+		bit_stream = slice.bit_stream
 		var_type = var_type[1:-1]
 		subvars = SplitString(var_type)
 		subvar_type = subvars.pop(0)
-		subvar = subvars.pop(0)
-		if subvar_type == "Maybe":
-			var_value = self.deser_maybe(bit_stream, subvar)
-		elif subvar_type == "VarUInteger":
-			var_value = self.deser_var_uinteger(bit_stream, subvar)
-		elif subvar_type == "##":
-			l = self.get_subvar(subvar)
+		var_value = self.deser_types(slice, subvar_type, subvars)
+		return var_value
+	#end define
+	
+	def deser_types(self, slice, var_type, subvars=None):
+		bit_stream = slice.bit_stream
+		if var_type == "int8":
+			buff = bit_stream.read(8)
+			var_value = buff.int
+		elif var_type == "int32":
+			buff = bit_stream.read(32)
+			var_value = buff.int
+		elif var_type == "uint32":
+			buff = bit_stream.read(32)
+			var_value = buff.uint
+		elif var_type == "uint64":
+			buff = bit_stream.read(64)
+			var_value = buff.uint
+		elif var_type == "bits256":
+			buff = bit_stream.read(256)
+			var_value = buff.hex
+		elif var_type.startswith('('):
+			var_value = self.deser_step2(var_type, slice)
+		elif var_type == "Maybe":
+			var_value = self.deser_maybe(slice, subvars[0])
+		elif var_type == "VarUInteger":
+			var_value = self.deser_var_uinteger(bit_stream, subvars[0])
+		elif var_type == "##":
+			l = self.get_subvar(subvars[0])
 			buff = bit_stream.read(l)
 			var_value = buff.uint
-		elif subvar_type == "bits":
-			l = self.get_subvar(subvar)
+		elif var_type == "bits":
+			l = self.get_subvar(subvars[0])
 			buff = bit_stream.read(l)
 			var_value = buff.hex
-		#elif subvar_type == "HashmapE":
-		#	l = self.get_subvar(subvar)
-		#	buff = bit_stream.read(l)
-		#	var_value = buff.hex
+		elif var_type == "HashmapE":
+			var_value = self.deser_hashmapE(bit_stream, subvars[0], subvars[1])
+		elif var_type == "^Cell":
+			cell = slice.read_cell()
+			var_value = cell2dict(cell, to_json=True)
 		else:
-			var_value = "break"
-			print(f"deser_step2: TODO: {var_type}")
+			var_value = self.deserialize(slice, var_type)
 		return var_value
 	#end define
 	
@@ -163,11 +170,20 @@ class TlbSchemes:
 		return buff.uint
 	#end define
 	
-	def deser_maybe(self, bit_stream, subvar):
+	def deser_maybe(self, slice, subvar):
+		bit_stream = slice.bit_stream
 		buff = bit_stream.read(1)
 		if buff.bin == '0':
 			return
-		var_value = self.deserialize(bit_stream, subvar)
+		var_value = self.deser_types(slice, subvar)
+		return var_value
+	#end define
+	
+	def deser_hashmapE(self, bit_stream, subvar, subvar2):
+		buff = bit_stream.read(1)
+		if buff.bin == '0':
+			return
+		var_value = self.deser_hashmap(bit_stream, subvar, subvar2)
 		return var_value
 	#end define
 #end class
@@ -206,14 +222,14 @@ class TlbScheme:
 		self.class_name = buff.pop(-1).strip()
 		text = buff.pop(0).strip()
 		
-		
 		buff = SplitString(text)
 		name_text = buff.pop(0)
-		if name_text == '_':
-			#print("Parse: TODO: link")
-			return
+		#if name_text == '_':
+		#	print(f"Parse: TODO: link -> {name_text} -> {self.class_name}")
+		#	print(f"buff: {buff}")
+		#	return
 		if '#' in name_text:
-			#print("Parse: TODO: #")
+			#print(f"Parse: TODO: # -> {name_text}")
 			return
 		if '$' in name_text:
 			name_buff = name_text.split('$')
@@ -229,6 +245,7 @@ class TlbScheme:
 			var_type = buff.pop()
 			vars[var_name] = var_type
 		self.vars = vars
+		#print(f" data: {self.class_name} -> {self.vars}")
 	#end define
 #end class
 
@@ -254,23 +271,3 @@ def SplitString(text, sep=' '):
 	result = list(filter(None, result))
 	return result
 #end define
-
-class Dict(dict):
-	def toClass(self):
-		for key, value in self.items():
-			setattr(self, key, value)
-		#end for
-	#end define
-#end class
-
-
-
-
-
-tlb_schemes = TlbSchemes()
-tlb_schemes.load_schemes("/usr/src/ton/crypto/block/block.tlb")
-
-cell_data = bytes.fromhex("c0021137b0bc47669b3267f1de70cbb0cef5c728b8d8c7890451e8613b2d899827026a886043179d3f6000006e233be8722201d7d239dba7d8181340")
-
-data = tlb_schemes.deserialize(cell_data, "Account")
-print(f"data: {data}")

@@ -3,6 +3,8 @@
 
 import os
 import binascii
+from io import BytesIO as ByteStream
+from mytypes import Dict
 
 
 class TlSchemes:
@@ -11,14 +13,14 @@ class TlSchemes:
 		self.schemes_ids = dict()
 	#end define
 	
-	def LoadSchemes(self, filepath):
+	def load_schemes(self, filepath):
 		if os.path.isfile(filepath):
-			self.LoadSchemesFromFile(filepath)
+			self.load_schemes_from_file(filepath)
 		elif os.path.isdir(filepath):
-			self.LoadSchemesFromDir(filepath)
+			self.load_schemes_from_dir(filepath)
 	#end define
 	
-	def LoadSchemesFromFile(self, filepath):
+	def load_schemes_from_file(self, filepath):
 		file = open(filepath, "rt")
 		text = file.read()
 		file.close()
@@ -32,25 +34,25 @@ class TlSchemes:
 		#end for
 	#end define
 	
-	def LoadSchemesFromDir(self, dir):
+	def load_schemes_from_dir(self, dir):
 		for file in os.listdir(dir):
 			if file.endswith(".tl"):
 				filepath = dir + file
-				self.LoadSchemesFromFile(filepath)
+				self.load_schemes_from_file(filepath)
 	#end define
 	
-	def GetSchemeByName(self, scheme_name):
+	def get_scheme_by_name(self, scheme_name):
 		result = self.schemes_names.get(scheme_name)
 		if result is None:
-			raise Exception(f"GetSchemeByName error: scheme '{scheme_name}' not found")
+			raise Exception(f"get_scheme_by_name error: scheme '{scheme_name}' not found")
 		return result
 	#end define
 	
-	def GetSchemeById(self, id):
+	def get_scheme_by_id(self, id):
 		scheme_name = self.schemes_ids.get(id)
 		result = self.schemes_names.get(scheme_name)
 		if result is None:
-			raise Exception(f"GetSchemeById error: scheme '{id.hex()}' not found")
+			raise Exception(f"get_scheme_by_id error: scheme '{id.hex()}' not found")
 		return result
 	#end define
 #end class
@@ -62,7 +64,7 @@ class TlScheme:
 		self.name = None
 		self.class_name = None
 		self.vars = None
-		self.Parse(text)
+		self.parse(text)
 	#end define
 	
 	def __str__(self):
@@ -74,7 +76,7 @@ class TlScheme:
 		return self.__str__()
 	#end define
 	
-	def Parse(self, text):
+	def parse(self, text):
 		end = ';'
 		if end in text:
 			text = text.replace(end, '')
@@ -100,50 +102,50 @@ class TlScheme:
 		self.vars = vars
 	#end define
 	
-	def LoadBytes(self, slicer, alen=4):
-		buff = slicer(1)
+	def load_bytes(self, byte_stream, alen=4):
+		buff = byte_stream.read(1)
 		if buff == bytes.fromhex("fe"):
-			buff = slicer(3)
+			buff = byte_stream.read(3)
 		dlen = int.from_bytes(buff, byteorder="little")
-		rdata = slicer(dlen)
+		rdata = byte_stream.read(dlen)
 		
 		if dlen % alen != 0:
 			nlen = alen - dlen % alen
-			null = slicer(nlen)
+			null = byte_stream.read(nlen)
 		return rdata
 	#end define
 	
-	def Deserialize(self, data):
-		if type(data) == BytesSlicer:
-			slicer = data
+	def deserialize(self, data):
+		if type(data) == ByteStream:
+			byte_stream = data
 		elif type(data) == bytes:
-			slicer = BytesSlicer(data)
+			byte_stream = ByteStream(data)
 		else:
-			raise Exception("Deserialize error: Input parameter type must be BytesSlicer")
+			raise Exception("Tl deserialize error: Input parameter type must be ByteStream")
 		#end if
 		
 		result = Dict()
 		for var_name, var_type in self.vars.items():
 			if var_type == "int":
-				buff = slicer(4)
+				buff = byte_stream.read(4)
 				var_value = Int(buff)
 			elif var_type == "long":
-				buff = slicer(8)
+				buff = byte_stream.read(8)
 				var_value = Int(buff)
 			elif var_type == "int256":
-				buff = slicer(32)
+				buff = byte_stream.read(32)
 				var_value = buff.hex()
 			elif var_type == "bytes":
-				var_value = self.LoadBytes(slicer)
+				var_value = self.load_bytes(byte_stream)
 			else:
-				scheme = self.schemes.GetSchemeByName(var_type)
-				var_value = scheme.Deserialize(slicer)
+				scheme = self.schemes.get_scheme_by_name(var_type)
+				var_value = scheme.deserialize(byte_stream)
 			result[var_name] = var_value
-		result.toClass()
+		result.to_class()
 		return result
 	#end define
 	
-	def Serialize(self, **data):
+	def serialize(self, **data):
 		result = bytes()
 		for var_name, var_type in self.vars.items():
 			var_value = data.get(var_name)
@@ -156,29 +158,9 @@ class TlScheme:
 			elif var_type == "int256":
 				result += bytes.fromhex(var_value)
 			else:
-				scheme = self.schemes.GetSchemeByName(var_type)
-				result += scheme.Serialize(**var_value)
+				scheme = self.schemes.get_scheme_by_name(var_type)
+				result += scheme.serialize(**var_value)
 		return result
-	#end define
-#end class
-
-class BytesSlicer:
-	def __init__(self, data):
-		self.bytes = data
-	#end define
-
-	def __call__(self, dlen):
-		data = self.bytes[:dlen]
-		self.bytes = self.bytes[dlen:]
-		return data
-	#end define
-#end class
-
-class Dict(dict):
-	def toClass(self):
-		for key, value in self.items():
-			setattr(self, key, value)
-		#end for
 	#end define
 #end class
 

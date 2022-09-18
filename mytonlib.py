@@ -11,11 +11,14 @@ import hashlib
 import secrets
 import binascii
 import urllib.request
+from io import BytesIO as ByteStream
 from nacl.signing import SigningKey, VerifyKey # pip3 install pynacl
 from Crypto.Cipher import AES # pip3 install pycrypto
 from Crypto.Util import Counter
 
-from tl import TlSchemes, BytesSlicer, Int, TlLen
+from tl import TlSchemes, Int, TlLen
+from tlb import TlbSchemes
+from boc import deserialize_boc
 from utils import ParseAddr
 
 
@@ -30,16 +33,26 @@ class Adnl:
 		self.tx_nonce = None
 		self.rx_cipher = None
 		self.tx_cipher = None
-		self.schemes = TlSchemes()
-		self.LoadSchemes()
+		self.tl_schemes = TlSchemes()
+		self.tlb_schemes = TlbSchemes()
+		self.load_tl_schemes()
+		self.load_tlb_schemes()
 	#end define
 	
-	def LoadSchemes(self):
+	def load_tl_schemes(self):
 		dir = "/usr/src/ton/tl/generate/scheme/"
 		if os.path.isdir(dir):
-			self.schemes.LoadSchemes(dir)
+			self.tl_schemes.load_schemes(dir)
 		else:
-			raise Exception("TL schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
+			raise Exception("Tl schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
+	#end define
+	
+	def load_tlb_schemes(self):
+		dir = "/usr/src/ton/crypto/block/"
+		if os.path.isdir(dir):
+			self.tlb_schemes.load_schemes(dir)
+		else:
+			raise Exception("Tlb schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
 	#end define
 	
 	def AddLog(self, text, type):
@@ -171,17 +184,17 @@ class Adnl:
 	
 	def Ping(self):
 		# send
-		send_scheme = self.schemes.GetSchemeByName("tcp.ping")
+		send_scheme = self.tl_schemes.get_scheme_by_name("tcp.ping")
 		random_id = secrets.token_bytes(8)
 		send_data = send_scheme.id + random_id
 		self.SendDatagram(send_data)
 		
 		# get
 		read_data = self.GetDatagram()
-		slicer = BytesSlicer(read_data)
-		read_scheme_id = slicer(4)
-		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
-		data = read_scheme.Deserialize(slicer)
+		byte_stream = ByteStream(read_data)
+		read_scheme_id = byte_stream.read(4)
+		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
+		data = read_scheme.deserialize(byte_stream)
 		if data.random_id != Int(random_id):
 			raise Exception("Adnl ping error: random_id does not match")
 		self.AddLog("ping - ok", "debug")
@@ -189,21 +202,21 @@ class Adnl:
 	
 	def Query(self, data):
 		# send
-		send_scheme = self.schemes.GetSchemeByName("adnl.message.query")
+		send_scheme = self.tl_schemes.get_scheme_by_name("adnl.message.query")
 		query_id = secrets.token_bytes(32)
 		dlen = TlLen(data)
 		data = self.AlignBytes(dlen + data)
 		send_data = send_scheme.id + query_id + data
 		self.SendDatagram(send_data)
-		print(f"send_data: {send_data.hex()}")
+		#print(f"send_data: {send_data.hex()}")
 		
 		# get
 		read_data = self.GetDatagram()
-		print(f"read_data: {read_data.hex()}")
-		slicer = BytesSlicer(read_data)
-		read_scheme_id = slicer(4)
-		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
-		data = read_scheme.Deserialize(slicer)
+		#print(f"read_data: {read_data.hex()}")
+		byte_stream = ByteStream(read_data)
+		read_scheme_id = byte_stream.read(4)
+		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
+		data = read_scheme.deserialize(byte_stream)
 		if query_id.hex() != data.query_id:
 			raise Exception("Adnl query error: query_id does not match")
 		return data.answer
@@ -211,7 +224,7 @@ class Adnl:
 	
 	def LiteServerQuery(self, data):
 		# send
-		send_scheme = self.schemes.GetSchemeByName("liteServer.query")
+		send_scheme = self.tl_schemes.get_scheme_by_name("liteServer.query")
 		dlen = TlLen(data)
 		data = self.AlignBytes(dlen + data)
 		send_data = send_scheme.id + data
@@ -223,17 +236,17 @@ class Adnl:
 	
 	def Get(self, function_name, **data):
 		# send
-		send_scheme = self.schemes.GetSchemeByName(f"liteServer.{function_name}")
-		send_data = send_scheme.id + send_scheme.Serialize(**data)
+		send_scheme = self.tl_schemes.get_scheme_by_name(f"liteServer.{function_name}")
+		send_data = send_scheme.id + send_scheme.serialize(**data)
 		
 		# get
 		read_data = self.LiteServerQuery(send_data)
-		slicer = BytesSlicer(read_data)
-		read_scheme_id = slicer(4)
-		read_scheme = self.schemes.GetSchemeById(read_scheme_id)
+		byte_stream = ByteStream(read_data)
+		read_scheme_id = byte_stream.read(4)
+		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
 		print(f"scheme_id: {read_scheme_id.hex()}")
 		print(f"scheme: {read_scheme.name}")
-		result = read_scheme.Deserialize(slicer)
+		result = read_scheme.deserialize(byte_stream)
 		return result
 	#end define
 	
@@ -249,7 +262,10 @@ class Adnl:
 		data = self.Get("getMasterchainInfo")
 		workchain, addr = ParseAddr(input_addr)
 		account = {"workchain":workchain, "id":addr}
-		return self.Get("getAccountState", id=data.last, account=account)
+		account_data = self.Get("getAccountState", id=data.last, account=account)
+		state_cell = deserialize_boc(account_data.state)
+		account_state = self.tlb_schemes.deserialize(state_cell, expected="Account")
+		return account_state
 	#end define
 #end class
 
@@ -262,7 +278,7 @@ pubkey = "n4VDnSCUuSpjnCyUk9e3QOOd6o0ItSWYbTnW3Wnn8wk="
 adnl = Adnl()
 adnl.Connect(host, port, pubkey)
 
-for i in range(3):
+for i in range(1):
 	time.sleep(1)
 	adnl.Ping()
 #end for
@@ -277,8 +293,8 @@ print("GetTime:")
 print(json.dumps(data, indent=4))
 
 data = adnl.GetAccountState("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
-print(f"GetAccountState: {data}")
-print(f"state: {data.state.hex()}")
-#print(json.dumps(data, indent=4))
+print(json.dumps(data, indent=4))
+#print(f"GetAccountState: {data}")
+
 
 
