@@ -1,5 +1,8 @@
+import copy
 from typing import Union, List, Optional
+
 from abc import ABC
+from adnl import const
 
 
 class BaseTL(ABC):
@@ -20,7 +23,7 @@ class TLObject(BaseTL):
     - long
     - int256
     """
-    def __init__(self, size: int):
+    def __init__(self, size: Optional[int]):
         self._size = size
 
     def unpack(self, data_bytes: Optional[bytes], pos=0) -> bytes:
@@ -64,6 +67,47 @@ class TLInt(TLObject):
         )
 
 
+class TLBytes(TLObject):
+    def __init__(self, data: Optional[bytes] = b'', packed=False):
+        super().__init__(None)
+        self.data = data
+        if self.data and not packed:
+            self.pack(bytearray(self.data).hex())
+        elif self.data and packed:
+            self.unpack(self.data)
+
+    def unpack(self, data_bytes: Optional[bytes], pos=0) -> bytes:
+        data = bytearray(data_bytes)
+        start = 1
+        size = data[0:1]
+        if size == const.BYTES_BIG_SIGN:
+            size = data[1:4]
+            start = len(size)
+        self._size = int.from_bytes(size, byteorder='little')
+        self.data = data[start: self._size + start]
+        return bytes(self.data)
+
+    def pack(self, hex_value: str) -> bytes:
+        arr = bytearray.fromhex(hex_value)
+        self._size = len(arr)
+        if self._size > const.ONE_BYTE_LIMIT:
+            # Make 3 bytes of size
+            self._size = self._size.to_bytes(3, 'little')
+            self._size = bytearray([const.BYTES_BIG_SIGN]) + self._size
+            arr = self._size + arr
+        else:
+            arr.insert(0, self._size)
+        # Try to pad bytes if it needs
+        while len(arr) % 4:
+            # Fill paddings
+            arr.append(const.BYTES_PADDING)
+        self.data = bytes(arr)
+        return self.data
+
+    def get_bytes(self) -> bytes:
+        return bytes(self.data)
+
+
 class TLInt256(TLObject):
     def __init__(self):
         super().__init__(32)
@@ -88,6 +132,7 @@ class TLLong(TLObject):
 
 class TLMetaObject(BaseTL):
     __size__ = 0
+    __schema__ = None
 
     @classmethod
     def __fields_names__(cls) -> List[str]:
@@ -155,3 +200,9 @@ class TLMetaObject(BaseTL):
                 result += field.pack(current_data)
         return result
 
+    def validate_response(self, data: bytes):
+        raise Exception('Not implemented')
+
+    @staticmethod
+    def response_schema_id(data: bytes) -> bytes:
+        return data[0:4]

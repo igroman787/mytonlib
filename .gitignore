@@ -4,3 +4,5 @@
 bin
 **/__pycache__/**
 *.py[cod]
+/.pyvenv/
+/.pyenv/

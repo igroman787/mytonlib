@@ -1,4 +1,6 @@
 from .tl_object import *
+from adnl import const
+from adnl import crypto
 
 
 # [tonNode.blockId]
@@ -45,3 +47,8 @@ class MasterchainInfo(TLMetaObject):
     last = BlockExtId()
     state_root_hash = TLInt256()
     init = ZeroStateIdExt()
+
+    def validate_response(self, data: bytes) -> bool:
+        ms_res_id = crypto.crc32(const.SCHEMA_GET_MASTERCHAIN_RES)
+        resp_schema_id = self.response_schema_id(data)
+        return ms_res_id == resp_schema_id
