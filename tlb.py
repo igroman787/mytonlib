@@ -2,7 +2,6 @@
 # -*- coding: utf_8 -*-
 
 import os
-import binascii
 from bitstring import BitStream # pip3 install bitstring
 from mytypes import Cell, Slice, Dict, cell2dict
 
@@ -36,12 +35,14 @@ class TlbSchemes:
 				continue
 			if line.startswith('//') or is_comment:
 				continue
+			#end if
+			
+			buff += line
 			if ';' in line:
-				line = buff + line
+				scheme = TlbScheme(buff)
 				buff = ""
 			else:
-				buff += line
-			scheme = TlbScheme(line)
+				continue
 			if scheme.class_name == None:
 				continue
 			self.schemes.append(scheme)
@@ -61,7 +62,7 @@ class TlbSchemes:
 			if scheme.class_name == name:
 				result.append(scheme)
 		if len(result) == 0:
-			raise Exception(f"get_schemes_by_name error: scheme '{name}' not found")
+			raise Exception(f"get_schemes_by_name error: TLB scheme '{name}' not found")
 		return result
 	#end define
 	
@@ -82,13 +83,12 @@ class TlbSchemes:
 		elif type(var) == Cell:
 			slice = Slice(var)
 		else:
-			print(f"var: {type(var)} -> {var}")
 			raise Exception("Tlb deserialize error: Input parameter type must be Slice")
 		#end if
 		
 		bit_stream = slice.bit_stream
 		scheme = self.get_scheme_using_prefix(bit_stream, expected)
-		print(f"deserialize: scheme: {scheme.name}")
+		#print(f"TlbSchemes deserialize: {expected} -> {scheme.name}, {scheme.class_name}, {scheme.vars}")
 		result = Dict()
 		result["@name"] = scheme.name
 		self.buff_result = result
@@ -98,15 +98,6 @@ class TlbSchemes:
 			#print(f"buff_result: {self.buff_result}")
 		result.to_class()
 		return result
-	#end define
-	
-	def deser_step2(self, var_type, slice):
-		bit_stream = slice.bit_stream
-		var_type = var_type[1:-1]
-		subvars = SplitString(var_type)
-		subvar_type = subvars.pop(0)
-		var_value = self.deser_types(slice, subvar_type, subvars)
-		return var_value
 	#end define
 	
 	def deser_types(self, slice, var_type, subvars=None):
@@ -150,6 +141,15 @@ class TlbSchemes:
 		return var_value
 	#end define
 	
+	def deser_step2(self, var_type, slice):
+		bit_stream = slice.bit_stream
+		var_type = var_type[1:-1]
+		subvars = SplitString(var_type)
+		subvar_type = subvars.pop(0)
+		var_value = self.deser_types(slice, subvar_type, subvars)
+		return var_value
+	#end define
+	
 	def get_subvar(self, subvar):
 		if subvar.isalnum():
 			l = int(subvar)
@@ -185,6 +185,41 @@ class TlbSchemes:
 			return
 		var_value = self.deser_hashmap(bit_stream, subvar, subvar2)
 		return var_value
+	#end define
+	
+	def serialize(self, **data):
+		result = bytes()
+		for var_name, var_type in self.vars.items():
+			var_value = data.get(var_name)
+			if var_value == None:
+				raise Exception(f"TLB serialize error: '{var_name}' not found in input parameters.")
+			result += self.ser_types(var_value)
+		return result
+	#end define
+	
+	def ser_types(self, var_type, var_value, subvars=None):
+		if var_type == "int8":
+			result = int.to_bytes(var_value, length=1, byteorder="little", signed=True)
+		elif var_type == "int32":
+			result = int.to_bytes(var_value, length=4, byteorder="little", signed=True)
+		elif var_type == "uint32":
+			result = int.to_bytes(var_value, length=4, byteorder="little", signed=False)
+		elif var_type == "uint64":
+			result = int.to_bytes(var_value, length=8, byteorder="little", signed=False)
+		elif var_type.startswith('('):
+			result = self.ser_step2(var_type, var_value)
+		else:
+			scheme = self.schemes.get_scheme_by_name(var_type)
+			result = scheme.serialize(**var_value)
+		return result
+	#end define
+	
+	def ser_step2(self, var_type, var_value):
+		var_type = var_type[1:-1]
+		subvars = SplitString(var_type)
+		subvar_type = subvars.pop(0)
+		result = self.ser_types(subvar_type, var_value, subvars)
+		return result
 	#end define
 #end class
 
@@ -229,7 +264,7 @@ class TlbScheme:
 		#	print(f"buff: {buff}")
 		#	return
 		if '#' in name_text:
-			#print(f"Parse: TODO: # -> {name_text}")
+			print(f"Parse: TODO: # -> {name_text}")
 			return
 		if '$' in name_text:
 			name_buff = name_text.split('$')
@@ -237,15 +272,14 @@ class TlbScheme:
 			self.prefix = name_buff.pop()
 		vars = dict()
 		for item in buff.copy():
-			sep = ':'
-			if sep not in item:
-				continue
-			buff = item.split(sep)
-			var_name = buff.pop(0)
+			buff = item.split(':')
+			if len(buff) == 1:
+				var_name = "_"
+			else:
+				var_name = buff.pop(0)
 			var_type = buff.pop()
 			vars[var_name] = var_type
 		self.vars = vars
-		#print(f" data: {self.class_name} -> {self.vars}")
 	#end define
 #end class
 
