@@ -2,7 +2,8 @@
 # -*- coding: utf_8 -*-
 
 import os
-import binascii
+#import binascii
+import fastcrc
 from io import BytesIO as ByteStream
 from mytypes import Dict
 
@@ -186,6 +187,8 @@ class TlScheme:
 			result = int.to_bytes(var_value, length=8, byteorder="little", signed=True)
 		elif var_type == "int256":
 			result = bytes.fromhex(var_value)
+		elif var_type == "bytes":
+			result = var_value
 		elif var_type == "#":
 			result = int.to_bytes(var_value, length=4, byteorder="little", signed=False)
 		elif var_type.startswith('('):
@@ -252,8 +255,8 @@ def TlLen(data):
 #end define
 
 def CRC32(text):
-	# buff = fastcrc.crc32.iso_hdlc(text.encode("utf8"))
-	buff = binascii.crc32(text.encode("utf8"))
+	buff = fastcrc.crc32.iso_hdlc(text.encode("utf8"))
+	#buff = binascii.crc32(text.encode("utf8"))
 	result = int.to_bytes(buff, length=4, byteorder="little")
 	return result
 #end define

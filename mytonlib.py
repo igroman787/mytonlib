@@ -10,7 +10,6 @@ import x25519 # pip3 install x25519
 import hashlib
 import secrets
 import fastcrc # pip3 install fastcrc
-import binascii
 import urllib.request
 from io import BytesIO as ByteStream
 from bitstring import BitArray
@@ -20,7 +19,7 @@ from Crypto.Util import Counter
 
 from tl import TlSchemes, Int, TlLen
 from tlb import TlbSchemes
-from boc import deserialize_boc
+from boc import serialize_boc, deserialize_boc
 from utils import ParseAddr
 
 
@@ -177,8 +176,7 @@ class Adnl:
 	def get_method_id(self, method_name):
 		# https://github.com/ton-blockchain/ton/blob/24dc184a2ea67f9c47042b4104bbb4d82289fac1/crypto/smc-envelope/SmartContract.h#L75
 		buff = fastcrc.crc16.xmodem(method_name.encode("utf8"))
-		buff = (buff & 0xffff) | 0x10000
-		result = int.to_bytes(buff, length=8, byteorder="little", signed=False)
+		result = (buff & 0xffff) | 0x10000
 		return result
 	#end define
 	
@@ -268,7 +266,7 @@ class Adnl:
 	
 	def get_block(self, block_id_ext=None):
 		"""
-		TODO: 
+		TODO: ^BlockInfo
 		block#11ef55aa global_id:int32 info:^BlockInfo value_flow:^ValueFlow state_update:^(MERKLE_UPDATE ShardState) extra:^BlockExtra = Block;
 		"""
 		if block_id_ext is None:
@@ -348,8 +346,9 @@ class Adnl:
 		workchain, addr = ParseAddr(input_addr)
 		account_id = {"workchain":workchain, "id":addr}
 		method_id = self.get_method_id(method_name)
-		params_cell = self.tlb_schemes.serialize(params, required="VmStack")
+		params_cell = self.tlb_schemes.serialize(required="VmStack", params=params)
 		params_boc = serialize_boc(params_cell)
+		print(f"mode: {mode}, method_id: {method_id}, params_boc: {params_boc}")
 		data = self.lite_server("runSmcMethod", mode=mode, id=block_id_ext, account=account_id, method_id=method_id, params=params_boc)
 		return data.hex()
 	#end define
@@ -435,8 +434,8 @@ def tests():
 	print("get_account_state:", json.dumps(data, indent=4))
 	
 	# runmethod - Runs GET method <method-id> of account <addr> with specified parameters
-	#data = adnl.run_smc_method("EQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTzpK4", "a2")
-	#print("run_smc_method:", json.dumps(data, indent=4))
+	data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
+	print("run_smc_method:", json.dumps(data, indent=4))
 	
 	# dnsresolve - Resolves a domain starting from root dns smart contract
 	
@@ -458,9 +457,9 @@ def tests():
 	#print("get_block_header:", json.dumps(data, indent=4))
 	
 	# getblock - Downloads block
-	data = adnl.get_block()
-	print("get_block:", json.dumps(data, indent=4))
-	print("get_block:", data)
+	#data = adnl.get_block()
+	#print("get_block:", json.dumps(data, indent=4))
+	#print("get_block:", data)
 	
 	# getstate - Downloads state corresponding to specified block
 	#data = adnl.get_state()

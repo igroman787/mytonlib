@@ -134,7 +134,7 @@ class TlbSchemes:
 		elif var_type == "HashmapE":
 			var_value = self.deser_hashmapE(bit_stream, subvars[0], subvars[1])
 		elif var_type == "^Cell":
-			cell = slice.read_cell()
+			cell = slice.read_ref()
 			var_value = cell2dict(cell, to_json=True)
 		else:
 			var_value = self.deserialize(slice, var_type)
@@ -187,39 +187,77 @@ class TlbSchemes:
 		return var_value
 	#end define
 	
-	def serialize(self, **data):
-		result = bytes()
-		for var_name, var_type in self.vars.items():
-			var_value = data.get(var_name)
-			if var_value == None:
-				raise Exception(f"TLB serialize error: '{var_name}' not found in input parameters.")
-			result += self.ser_types(var_value)
-		return result
+	def serialize(self, required, **data):
+		cell = Cell()
+		key, var_value = data.popitem()
+		self.ser_types(cell, required, var_value)
+		#scheme = self.get_schemes_by_name(required)[0]
+		#print(f"required: {required}, scheme: {scheme}")
+		#for var_name, var_type in scheme.vars.items():
+			#var_value = data.get(var_name)
+			#if var_value == None:
+			#	raise Exception(f"TLB serialize error: '{var_name}' not found in input parameters.")
+			#self.ser_types(cell, var_type, var_value)
+		return cell
 	#end define
 	
-	def ser_types(self, var_type, var_value, subvars=None):
+	def ser_types(self, cell, var_type, var_value, subvars=None):
 		if var_type == "int8":
-			result = int.to_bytes(var_value, length=1, byteorder="little", signed=True)
+			cell.data += int.to_bytes(var_value, length=1, byteorder="little", signed=True)
 		elif var_type == "int32":
-			result = int.to_bytes(var_value, length=4, byteorder="little", signed=True)
+			cell.data += int.to_bytes(var_value, length=4, byteorder="little", signed=True)
 		elif var_type == "uint32":
-			result = int.to_bytes(var_value, length=4, byteorder="little", signed=False)
+			cell.data += int.to_bytes(var_value, length=4, byteorder="little", signed=False)
 		elif var_type == "uint64":
-			result = int.to_bytes(var_value, length=8, byteorder="little", signed=False)
+			cell.data += int.to_bytes(var_value, length=8, byteorder="little", signed=False)
 		elif var_type.startswith('('):
-			result = self.ser_step2(var_type, var_value)
+			cell.data += self.ser_step2(cell, var_type, var_value)
+		elif var_type == "VmStack":
+			new_cell = self.vm_stack(var_value)
+			print(f"vm_stack: {cell2dict(new_cell, True)}")
+			cell.copy(new_cell)
 		else:
-			scheme = self.schemes.get_scheme_by_name(var_type)
-			result = scheme.serialize(**var_value)
-		return result
+			cell.data += self.serialize(var_type, **var_value)
 	#end define
 	
-	def ser_step2(self, var_type, var_value):
+	def ser_step2(self, cell, var_type, var_value):
 		var_type = var_type[1:-1]
 		subvars = SplitString(var_type)
 		subvar_type = subvars.pop(0)
-		result = self.ser_types(subvar_type, var_value, subvars)
+		result = self.ser_types(cell, subvar_type, var_value, subvars)
 		return result
+	#end define
+	
+	def vm_stack(self, data):
+		# vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
+		if data is None:
+			data = list()
+		if type(data) != list:
+			raise Exception("vm_stack error: input parameters must be 'list'")
+		#end if
+		
+		cell = Cell()
+		depth = len(data)
+		for i in range(depth):
+			item = data[i]
+			if type(item) == int:
+				# vm_stk_tinyint#01 value:int64 = VmStackValue;
+				cell.data += bytes.fromhex("01")
+				cell.data += int.to_bytes(item, length=8, byteorder="big", signed=True)
+				cell.bits_sz += 1*8 + 8*8
+			else:
+				raise Exception(f"vm_stack error: TODO: '{type(item)}'")
+			if i+1 < depth:
+				new_cell = Cell()
+				new_cell.add_ref(cell)
+				cell = new_cell
+			#end if
+		#end for
+		
+		depth_bytes = int.to_bytes(depth, length=3, byteorder="big", signed=False)
+		cell.data = depth_bytes + cell.data
+		cell.bits_sz += 3*8
+		return cell
 	#end define
 #end class
 
@@ -263,9 +301,9 @@ class TlbScheme:
 		#	print(f"Parse: TODO: link -> {name_text} -> {self.class_name}")
 		#	print(f"buff: {buff}")
 		#	return
-		if '#' in name_text:
-			print(f"Parse: TODO: # -> {name_text}")
-			return
+		#if '#' in name_text:
+		#	print(f"Parse: TODO: # -> {name_text}")
+		#	return
 		if '$' in name_text:
 			name_buff = name_text.split('$')
 			self.name = name_buff.pop(0)

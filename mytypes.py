@@ -4,13 +4,34 @@
 from bitstring import BitStream # pip3 install bitstring
 
 
+def int_be(data):
+	return int.from_bytes(data, byteorder="big", signed=True)
+#end define
+
+def uint_be(data):
+	return int.from_bytes(data, byteorder="big", signed=False)
+#end define
+
+def int_le(data):
+	return int.from_bytes(data, byteorder="little", signed=True)
+#end define
+
+def uint_le(data):
+	return int.from_bytes(data, byteorder="little", signed=False)
+#end define
+
 class Cell:
 	def __init__(self):
-		self.special = None
-		self.bits_sz = None
-		self.level_mask = None
-		self.data = None
-		self.refs = None
+		self.special = False
+		self.bits_sz = 0
+		self.level = 0
+		self.data = bytes()
+		self.refs = list() # why not list?
+		self.index = None
+	#end define
+	
+	def __eq__(self, cell):
+		return self.data == cell.data
 	#end define
 	
 	def __str__(self):
@@ -24,19 +45,33 @@ class Cell:
 	def __repr__(self):
 		return self.__str__()
 	#end define
+	
+	def add_ref(self, cell):
+		#index = len(self.refs)
+		#self.refs[index] = cell
+		self.refs.append(cell)
+	#end define
+	
+	def copy(self, cell):
+		self.special = cell.special
+		self.bits_sz = cell.bits_sz
+		self.level = cell.level
+		self.data = cell.data
+		self.refs = cell.refs
+	#end define
 #end class
 
 class Slice(Cell):
 	def __init__(self, cell):
 		self.special = cell.special
 		self.bits_sz = cell.bits_sz
-		self.level_mask = cell.level_mask
+		self.level = cell.level
 		self.bit_stream = BitStream(cell.data)
 		self.refs = cell.refs
 		self.used_refs_index = 0
 	#end define
 	
-	def read_cell(self):
+	def read_ref(self):
 		"""
 		Read next cell from refs
 		"""

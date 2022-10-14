@@ -3,9 +3,10 @@
 
 import math
 import json
+import fastcrc
 from io import BytesIO as ByteStream
 from bitstring import BitArray, BitStream # pip3 install bitstring
-from mytypes import Cell, Slice, Dict
+from mytypes import Cell, Slice, Dict, int_be
 
 def deserialize_boc(data):
 	#print(f"deserialize_boc data: {data.hex()}")
@@ -14,17 +15,17 @@ def deserialize_boc(data):
 	if byte_stream.read(4) != magic:
 		raise Exception("deserialize_boc error: invalid boc magic header")
 	flags_byte = byte_stream.read(1)
-	data_size = dynInt(byte_stream.read(1))
+	data_size = int_be(byte_stream.read(1))
 	flags, ref_sz_bytes = parse_flags(flags_byte)
 	
-	cells_num = dynInt(byte_stream.read(ref_sz_bytes))
-	roots_num = dynInt(byte_stream.read(ref_sz_bytes))
+	cells_num = int_be(byte_stream.read(ref_sz_bytes))
+	roots_num = int_be(byte_stream.read(ref_sz_bytes))
 	absent_bytes = byte_stream.read(ref_sz_bytes)
 	data_len_bytes = byte_stream.read(data_size)
-	data_len = dynInt(data_len_bytes)
+	data_len = int_be(data_len_bytes)
 	
 	root_list = byte_stream.read(roots_num * ref_sz_bytes)
-	root_index = dynInt(root_list[0:ref_sz_bytes])
+	root_index = int_be(root_list[0:ref_sz_bytes])
 	
 	index = list()
 	if flags.has_index:
@@ -32,7 +33,7 @@ def deserialize_boc(data):
 		n = 0
 		for i in range(cells_num):
 			off = i * data_size
-			val = dynInt(idx_data[off : off+data_size])
+			val = int_be(idx_data[off : off+data_size])
 			if flags.has_cache_bits:
 				# TODO: check caches
 				if val%2 == 1:
@@ -98,7 +99,7 @@ def deserialize_boc(data):
 		refs_index = dict()
 		for y in range(refs_num):
 			ref_index = data[offset:offset+ref_sz_bytes]
-			refs_index[y] = dynInt(ref_index)
+			refs_index[y] = int_be(ref_index)
 			offset += ref_sz_bytes
 		#end for
 		
@@ -158,8 +159,152 @@ def parse_flags(byte):
 	return flags, ref_sz_bytes
 #end define
 
-def dynInt(data):
-	return int.from_bytes(data, byteorder="big", signed=True)
+def serialize_boc(cell, with_crc=False):
+	"""
+	serialized_boc#b5ee9c72 has_idx:(## 1) has_crc32c:(## 1) 
+	  has_cache_bits:(## 1) flags:(## 2) { flags = 0 }
+	  size:(## 3) { size <= 4 }
+	  off_bytes:(## 8) { off_bytes <= 8 } 
+	  cells:(##(size * 8)) 
+	  roots:(##(size * 8)) { roots >= 1 }
+	  absent:(##(size * 8)) { roots + absent <= cells }
+	  tot_cells_size:(##(off_bytes * 8))
+	  root_list:(roots * ##(size * 8))
+	  index:has_idx?(cells * ##(off_bytes * 8))
+	  cell_data:(tot_cells_size * [ uint8 ])
+	  crc32c:has_crc32c?uint32
+	  = BagOfCells;
+	"""
+	print(f"serialize_boc cell: {cell}")
+	# recursively go through cells, build hash index and store unique in slice
+	magic = bytes.fromhex("b5ee9c72")
+	order_cells = smooth(cell)
+	index(order_cells)
+	print(f"order_cells: {order_cells}")
+	cells_num = len(order_cells)
+	
+	# bytes needed to store num of cells
+	cell_size_bits = math.log2(cells_num + 1)
+	cell_size = math.ceil(cell_size_bits / 8)
+	cell_size_bytes = int.to_bytes(cell_size, length=1, byteorder="little", signed=False)
+	
+	payload = bytes()
+	for item in order_cells:
+		payload += serialize_cell(item, cell_size)
+	#end for
+	
+	# bytes needed to store len of payload
+	size_bits = math.log2(len(payload) + 1)
+	size = math.ceil(size_bits / 8)
+	size_bytes = int.to_bytes(size, length=1, byteorder="little", signed=False)
+	
+	flags = 0b00000000
+	if with_crc:
+		flags |= 0b01000000
+	flags |= cell_size
+	flags_bytes = int.to_bytes(flags, length=1, byteorder="little", signed=False)
+	
+	result = bytes()
+	result += magic
+	result += flags_bytes
+	result += size_bytes
+	
+	# cells num
+	cells_num_bytes = dynamic_int_bytes(cells_num, cell_size)
+	result += cells_num_bytes
+
+	# roots num (only 1 supported for now)
+	roots_num_bytes = dynamic_int_bytes(1, cell_size)
+	result += roots_num_bytes
+
+	# absent (only 0 supported for now)
+	absent_bytes = dynamic_int_bytes(0, cell_size)
+	result += absent_bytes
+
+	# len of data
+	tot_cells_size = len(payload)
+	tot_cells_size_bytes = dynamic_int_bytes(tot_cells_size, size)
+	result += tot_cells_size_bytes
+
+	# root should have index 0
+	result += dynamic_int_bytes(0, cell_size)
+	result += payload
+	
+	if with_crc:
+		buff = fastcrc.crc32.iso_hdlc(text.encode("utf8"))
+		checksum = int.to_bytes(buff, length=4, byteorder="little")
+		result += checksum
+	#end if
+	
+	return result
+#end define
+
+def smooth(cell, result=list()):
+	if cell in result:
+		result.remove(cell)
+	result.append(cell)
+	for ref in cell.refs:
+		smooth(ref, result)
+	return result
+#end define
+
+def index(order_cells):
+	for i in range(len(order_cells)):
+		item = order_cells[i]
+		item.index = i
+#end define
+
+def serialize_cell(cell, cell_size_bytes, is_hash=False):
+	payload = cell.data
+	
+	unused_bits = 8 - (cell.bits_sz % 8)
+	if unused_bits != 8:
+		payload[len(payload)-1] += 1 << (unused_bits - 1)
+	#end if
+	
+	result = descriptors(cell) + payload
+	
+	if is_hash:
+		#for ref in cell.refs:
+		#	data = append(data, make([]byte, 2)...)
+		#	binary.BigEndian.PutUint16(data[len(data)-2:], uint16(ref.maxDepth(0)))
+		#}
+		#for ref in cell.refs:
+		#	data = append(data, ref.Hash()...)
+		#}
+		pass
+	else:
+		for ref in cell.refs:
+			result += dynamic_int_bytes(ref.index, cell_size_bytes)
+	#end if
+	
+	return result
+#end define
+
+def descriptors(cell):
+	ceil_bytes_num = int(cell.bits_sz / 8)
+	if cell.bits_sz % 8 != 0:
+		ceil_bytes_num += 1
+	#end if
+	
+	spec_bit = 0
+	if cell.special:
+		spec_bit = 8
+	#end if
+	
+	d1 = len(cell.refs) + spec_bit + cell.level*32
+	d2 = int(ceil_bytes_num + cell.bits_sz/8)
+	d1_bytes = int.to_bytes(d1, length=1, byteorder="big", signed=False)
+	d2_bytes = int.to_bytes(d2, length=1, byteorder="big", signed=False)
+	result = d1_bytes + d2_bytes
+	return result
+#end define
+
+def dynamic_int_bytes(value, size):
+	data = int.to_bytes(value, length=8, byteorder="big", signed=False)
+	data_length = 8 - size
+	result = data[data_length:]
+	return result
 #end define
 
 def tests():
