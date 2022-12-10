@@ -26,7 +26,7 @@ class Cell:
 		self.bits_sz = 0
 		self.level = 0
 		self.data = bytes()
-		self.refs = list() # why not list?
+		self.refs = list()
 		self.index = None
 	#end define
 	
@@ -47,8 +47,6 @@ class Cell:
 	#end define
 	
 	def add_ref(self, cell):
-		#index = len(self.refs)
-		#self.refs[index] = cell
 		self.refs.append(cell)
 	#end define
 	
@@ -72,19 +70,16 @@ class Slice(Cell):
 	#end define
 	
 	def read_ref(self):
-		"""
-		Read next cell from refs
-		"""
 		result = self.refs[self.used_refs_index]
 		self.used_refs_index += 1
 		return result
 #end class
 
 def cells2dict(cells, to_json=False):
-	result = dict()
-	for i in range(len(cells)):
-		cell = cells[i]
-		result[i] = cell2dict(cell, to_json=to_json)
+	result = list()
+	for cell in cells:
+		buff = cell2dict(cell, to_json=to_json)
+		result.append(buff)
 	return result
 #end define
 
@@ -93,6 +88,7 @@ def cell2dict(cell, to_json=False):
 	if to_json is True:
 		data = data.hex()
 	result = dict()
+	result["@name"] = "Cell"
 	result["special"] = cell.special
 	result["bits_sz"] = cell.bits_sz
 	result["level"] = cell.level

@@ -2,6 +2,8 @@
 # -*- coding: utf_8 -*-
 
 import os
+import math
+import json
 from bitstring import BitStream # pip3 install bitstring
 from mytypes import Cell, Slice, Dict, cell2dict
 
@@ -10,6 +12,7 @@ class TlbSchemes:
 	def __init__(self):
 		self.schemes = list()
 		self.buff_result = None
+		self.using_scheme = None
 	#end define
 	
 	def load_schemes(self, filepath):
@@ -46,6 +49,7 @@ class TlbSchemes:
 			if scheme.class_name == None:
 				continue
 			self.schemes.append(scheme)
+			#print(f"TlbScheme: {scheme}")
 		#end for
 	#end define
 	
@@ -89,13 +93,18 @@ class TlbSchemes:
 		bit_stream = slice.bit_stream
 		scheme = self.get_scheme_using_prefix(bit_stream, expected)
 		#print(f"TlbSchemes deserialize: {expected} -> {scheme.name}, {scheme.class_name}, {scheme.vars}")
-		result = Dict()
+		self.using_scheme = scheme
+		result = self.deser_vars(slice, scheme.vars)
 		result["@name"] = scheme.name
+		return result
+	#end define
+	
+	def deser_vars(self, slice, vars):
+		result = Dict()
 		self.buff_result = result
-		for var_name, var_type in scheme.vars.items():
+		for var_name, var_type in vars.items():
 			var_value = self.deser_types(slice, var_type)
 			result[var_name] = var_value
-			#print(f"buff_result: {self.buff_result}")
 		result.to_class()
 		return result
 	#end define
@@ -123,8 +132,15 @@ class TlbSchemes:
 			var_value = self.deser_maybe(slice, subvars[0])
 		elif var_type == "VarUInteger":
 			var_value = self.deser_var_uinteger(bit_stream, subvars[0])
+		elif var_type == "#":
+			buff = bit_stream.read(32)
+			var_value = buff.uint
 		elif var_type == "##":
 			l = self.get_subvar(subvars[0])
+			buff = bit_stream.read(l)
+			var_value = buff.uint
+		elif var_type == "#<=":
+			l = self.get_receptacle(subvars[0])
 			buff = bit_stream.read(l)
 			var_value = buff.uint
 		elif var_type == "bits":
@@ -132,26 +148,38 @@ class TlbSchemes:
 			buff = bit_stream.read(l)
 			var_value = buff.hex
 		elif var_type == "HashmapE":
-			var_value = self.deser_hashmapE(bit_stream, subvars[0], subvars[1])
-		elif var_type == "^Cell":
-			cell = slice.read_ref()
-			var_value = cell2dict(cell, to_json=True)
+			var_value = self.deser_hashmap_e(slice, subvars[0], subvars[1])
+		elif var_type == "HashmapAugE":
+			var_value = self.deser_hashmap_aug_e(slice, subvars[0], subvars[1])
+		elif var_type.startswith('^'):
+			var_value = self.deser_cell(slice, var_type)
 		else:
 			var_value = self.deserialize(slice, var_type)
 		return var_value
 	#end define
 	
+	def get_receptacle(self, m):
+		# (#<= m)
+		a1 = self.get_subvar(m)
+		a2 = "{0:b}".format(a1)
+		n = len(a2)
+		#n2 = int(math.ceil(math.log2(m + 1))) # n == n2
+		return n
+	#end define
+	
 	def deser_step2(self, var_type, slice):
 		bit_stream = slice.bit_stream
 		var_type = var_type[1:-1]
-		subvars = SplitString(var_type)
+		subvars = split_string(var_type)
 		subvar_type = subvars.pop(0)
 		var_value = self.deser_types(slice, subvar_type, subvars)
 		return var_value
 	#end define
 	
 	def get_subvar(self, subvar):
-		if subvar.isalnum():
+		if type(subvar) == int:
+			l = subvar
+		elif subvar.isalnum():
 			l = int(subvar)
 		else:
 			l = self.buff_result.get(subvar)
@@ -179,11 +207,123 @@ class TlbSchemes:
 		return var_value
 	#end define
 	
-	def deser_hashmapE(self, bit_stream, subvar, subvar2):
+	def deser_hashmap_e(self, slice, n, xtype):
+		s = ""
+		n = int(n)
+		result = dict()
+		print(f"deser_hashmap_e: {n} {xtype}")
+		bit_stream = slice.bit_stream
+		buff = bit_stream.read(1)
+		if buff.bin == '0':
+			# hme_empty
+			return
+		# hme_root
+		cell = slice.read_ref()
+		new_slice = Slice(cell)
+		self.deser_hashmap(result, new_slice, n, s, xtype)
+		print(f"deser_hashmap_e: {result}")
+		return result
+	#end define
+	
+	def deser_hashmap(self, result, slice, n, s, xtype):
+		# hm_edge
+		l, s2 = self.deser_hm_label(slice, n, s)
+		m = n - l
+		self.deser_hashmap_node(result, slice, m, s2, xtype)
+	#end define
+	
+	def deser_hm_label(self, slice, m, s):
+		bit_stream = slice.bit_stream
+		buff = bit_stream.read(1)
+		if buff.bin == '0':
+			# hml_short
+			print("hml_short")
+			n = self.deser_unary(bit_stream)
+			s2 = ""
+		else:
+			buff += bit_stream.read(1)
+		if buff.bin == '10':
+			# hml_long
+			print("hml_long")
+			l = self.get_receptacle(m)
+			buff = bit_stream.read(l)
+			n = buff.uint
+			s2 = s + bit_stream.read(n)
+		elif buff.bin == '11':
+			# hml_same
+			print("hml_same")
+			buff = bit_stream.read(1)
+			type_bit = buff.bin
+			l = self.get_receptacle(m)
+			buff = bit_stream.read(l)
+			n = buff.uint
+			s2 = type_bit * n
+		return n, s2
+	#end define
+	
+	def deser_unary(self, bit_stream):
+		n = 0
+		buff = bit_stream.read(1)
+		while buff.bin == '1':
+			n += 1
+		return n
+	#end define
+	
+	def deser_hashmap_node(self, result, slice, m, s, xtype):
+		if m == 0:
+			# hmn_leaf
+			print(f"hmn_leaf: {xtype}")
+			#bit_stream = slice.bit_stream
+			#buff = bit_stream.read(bit_stream.len - bit_stream.pos)
+			var_value = self.deser_types(slice, xtype)
+			buff = BitStream(bin=s)
+			var_key = buff.uint
+			result[var_key] = var_value
+			return
+		#end if
+		
+		# hmn_fork
+		n = m - 1
+		
+		# left
+		print("left")
+		s2 = s + '0'
+		cell = slice.read_ref()
+		new_slice = Slice(cell)
+		self.deser_hashmap(new_slice, n, s2, xtype)
+		
+		# rigth
+		print("rigth")
+		s2 = s + '1'
+		cell = slice.read_ref()
+		new_slice = Slice(cell)
+		self.deser_hashmap(new_slice, n, s2, xtype)
+	#end define
+	
+	def deser_hashmap_aug_e(self, slice, subvar, subvar2):
+		bit_stream = slice.bit_stream
 		buff = bit_stream.read(1)
 		if buff.bin == '0':
 			return
-		var_value = self.deser_hashmap(bit_stream, subvar, subvar2)
+		var_value = self.deser_hashmap_aug(bit_stream, subvar, subvar2)
+		return var_value
+	#end define
+	
+	def deser_cell(self, slice, var_type):
+		var_type = var_type[1:]
+		cell = slice.read_ref()
+		new_slice = Slice(cell)
+		if var_type == "Cell":
+			var_value = cell2dict(cell, to_json=True)
+		elif var_type.startswith('['):
+			start = var_type.find('[') + 1
+			end = var_type.find(']')
+			vars_text = var_type[start:end]
+			vars_buff = split_string(vars_text)
+			vars = self.using_scheme.parse_vars(vars_buff)
+			var_value = self.deser_vars(new_slice, vars)
+		else:
+			var_value = self.deser_types(new_slice, var_type)
 		return var_value
 	#end define
 	
@@ -213,8 +353,7 @@ class TlbSchemes:
 		elif var_type.startswith('('):
 			cell.data += self.ser_step2(cell, var_type, var_value)
 		elif var_type == "VmStack":
-			new_cell = self.vm_stack(var_value)
-			print(f"vm_stack: {cell2dict(new_cell, True)}")
+			new_cell = self.ser_vmstack(var_value)
 			cell.copy(new_cell)
 		else:
 			cell.data += self.serialize(var_type, **var_value)
@@ -222,18 +361,18 @@ class TlbSchemes:
 	
 	def ser_step2(self, cell, var_type, var_value):
 		var_type = var_type[1:-1]
-		subvars = SplitString(var_type)
+		subvars = split_string(var_type)
 		subvar_type = subvars.pop(0)
 		result = self.ser_types(cell, subvar_type, var_value, subvars)
 		return result
 	#end define
 	
-	def vm_stack(self, data):
-		# vm_stack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
+	def ser_vmstack(self, data):
+		# ser_vmstack#_ depth:(## 24) stack:(VmStackList depth) = VmStack;
 		if data is None:
 			data = list()
 		if type(data) != list:
-			raise Exception("vm_stack error: input parameters must be 'list'")
+			raise Exception("ser_vmstack error: input parameters must be 'list'")
 		#end if
 		
 		cell = Cell()
@@ -246,7 +385,9 @@ class TlbSchemes:
 				cell.data += int.to_bytes(item, length=8, byteorder="big", signed=True)
 				cell.bits_sz += 1*8 + 8*8
 			else:
-				raise Exception(f"vm_stack error: TODO: '{type(item)}'")
+				raise Exception(f"ser_vmstack error: TODO: '{type(item)}'")
+			if i == 0:
+				cell.add_ref(Cell())
 			if i+1 < depth:
 				new_cell = Cell()
 				new_cell.add_ref(cell)
@@ -267,11 +408,11 @@ class TlbScheme:
 		self.class_name = None
 		self.vars = None
 		self.prefix = None
-		self.Parse(text)
+		self.parse(text)
 	#end define
 	
 	def __str__(self):
-		result = f"<TlbScheme {self.name}={self.class_name}>"
+		result = f"<TlbScheme {self.name}={self.class_name}, {self.vars}>"
 		return result
 	#end define
 	
@@ -279,49 +420,58 @@ class TlbScheme:
 		return self.__str__()
 	#end define
 	
-	def Parse(self, text):
+	def parse(self, text):
 		end = ';'
 		if end in text:
-			text = text.replace(end, '')
+			endp = text.find(end)
+			text = text[:endp]
 		if '{' in text or '}' in text:
-			#print("Found a logical equation. Skipping")
+			#print(f"Found a logical equation. Skipping: {text}")
 			return
 		#end if
 		
 		sep = " = "
 		if sep not in text:
 			return
-		buff = text.split(sep)
-		self.class_name = buff.pop(-1).strip()
-		text = buff.pop(0).strip()
+		vars_buff = text.split(sep)
+		self.class_name = vars_buff.pop(-1).strip()
+		text = vars_buff.pop(0).strip()
 		
-		buff = SplitString(text)
-		name_text = buff.pop(0)
+		vars_buff = split_string(text)
+		name_text = vars_buff.pop(0)
 		#if name_text == '_':
-		#	print(f"Parse: TODO: link -> {name_text} -> {self.class_name}")
-		#	print(f"buff: {buff}")
+		#	print(f"parse: TODO: link -> {name_text} -> {self.class_name}")
+		#	print(f"vars_buff: {vars_buff}")
 		#	return
 		#if '#' in name_text:
-		#	print(f"Parse: TODO: # -> {name_text}")
+		#	print(f"parse: TODO: # -> {name_text}")
 		#	return
 		if '$' in name_text:
 			name_buff = name_text.split('$')
 			self.name = name_buff.pop(0)
 			self.prefix = name_buff.pop()
+		self.vars = self.parse_vars(vars_buff)
+	#end define
+	
+	def parse_vars(self, vars_buff):
 		vars = dict()
-		for item in buff.copy():
+		for item in vars_buff.copy():
 			buff = item.split(':')
-			if len(buff) == 1:
+			if item.startswith('^'):
+				var_name = "_subvars"
+				var_type = item
+			elif len(buff) == 1:
 				var_name = "_"
+				var_type = buff.pop()
 			else:
 				var_name = buff.pop(0)
-			var_type = buff.pop()
+				var_type = buff.pop()
 			vars[var_name] = var_type
-		self.vars = vars
+		return vars
 	#end define
 #end class
 
-def SplitString(text, sep=' '):
+def split_string(text, sep=' '):
 	buff = ""
 	result = list()
 	bracket_index = 0
@@ -332,9 +482,9 @@ def SplitString(text, sep=' '):
 			buff = ""
 		else:
 			buff += letter
-		if letter in ['(', '{']:
+		if letter in ['(', '{', '[']:
 			bracket_index += 1
-		elif letter in [')', '}']:
+		elif letter in [')', '}', ']']:
 			bracket_index -= 1
 	if len(buff) > 0:
 		buff = buff.strip()

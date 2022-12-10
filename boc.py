@@ -6,7 +6,7 @@ import json
 import fastcrc
 from io import BytesIO as ByteStream
 from bitstring import BitArray, BitStream # pip3 install bitstring
-from mytypes import Cell, Slice, Dict, int_be
+from mytypes import Cell, Slice, Dict, int_be, cell2dict
 
 def deserialize_boc(data):
 	#print(f"deserialize_boc data: {data.hex()}")
@@ -115,6 +115,11 @@ def deserialize_boc(data):
 			referred[id] = True
 		#end for
 		
+		refs_new = list()
+		for key, value in refs.items():
+			refs_new.append(value)
+		refs = refs_new
+		
 		# if not full byte
 		bits_sz = ln * 4
 		if ln%2 != 0:
@@ -175,12 +180,10 @@ def serialize_boc(cell, with_crc=False):
 	  crc32c:has_crc32c?uint32
 	  = BagOfCells;
 	"""
-	print(f"serialize_boc cell: {cell}")
 	# recursively go through cells, build hash index and store unique in slice
 	magic = bytes.fromhex("b5ee9c72")
 	order_cells = smooth(cell)
 	index(order_cells)
-	print(f"order_cells: {order_cells}")
 	cells_num = len(order_cells)
 	
 	# bytes needed to store num of cells
@@ -239,7 +242,9 @@ def serialize_boc(cell, with_crc=False):
 	return result
 #end define
 
-def smooth(cell, result=list()):
+def smooth(cell, result=None):
+	if result is None:
+		result = list()
 	if cell in result:
 		result.remove(cell)
 	result.append(cell)
