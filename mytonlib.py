@@ -32,14 +32,8 @@ class AdnlUdpClient():
 	def __init__(self):
 		self.local = None
 		self.sock = None
-		self.local_priv = None
-		self.local_pub = None
-		self.rx_key = None
-		self.tx_key = None
-		self.rx_nonce = None
-		self.tx_nonce = None
-		self.rx_cipher = None
-		self.tx_cipher = None
+		self.local_private_key = secrets.token_bytes(32)
+		self.channel_private_key = secrets.token_bytes(32)
 		self.tl_schemes = TlSchemes()
 		self.tlb_schemes = TlbSchemes()
 		self.load_tl_schemes()
@@ -73,36 +67,23 @@ class AdnlUdpClient():
 			if item.isdigit():
 				index = mode_len - int(item) - 1
 				mode_bin[index] = True
+		#end for
+		
 		return mode_bin.uint
 	#end define
 	
-	def connect(self, host, port, pubkey):
+	def connect(self, host, port, peer_public_key_b64):
 		timestamp = int(time.time())
-		peer_pub = base64.b64decode(pubkey) # 32 bytes, ed25519
-		peer_id = self.get_id(peer_pub) # 32 bytes
-		print(f"peer_pub: {peer_pub.hex()}")
-		print(f"peer_id: {peer_id.hex()}")
+		peer_public_key = base64.b64decode(peer_public_key_b64)
+		peer_id = self.get_id(peer_public_key)
 		
-		# create local private key
-		signing_key = SigningKey.generate() # 32 bytes
-		local_priv = signing_key.encode() # ed25519
-		local_pub = signing_key.verify_key.encode() # ed25519
-		private_key = signing_key.to_curve25519_private_key().encode() # x25519
-		public_key = signing_key.verify_key.to_curve25519_public_key().encode() # x25519
-		print(f"local_pub: {local_pub.hex()}")
-		
-		# create secret key
-		peer_verify_key = VerifyKey(peer_pub) # 32 bytes
-		peer_public_key = peer_verify_key.to_curve25519_public_key().encode() # x25519
-		secret = x25519.scalar_mult(private_key, peer_public_key) # x25519
-		
-		# create channel key
-		channel_signing_key = SigningKey.generate() # 32 bytes
-		channel_local_priv = channel_signing_key.encode() # ed25519
-		channel_local_pub = channel_signing_key.verify_key.encode() # ed25519
-		channel_private_key = channel_signing_key.to_curve25519_private_key().encode() # x25519
-		channel_public_key = channel_signing_key.verify_key.to_curve25519_public_key().encode() # x25519
-		print(f"channel_local_pub: {channel_local_pub.hex()}")
+		local_public_key = self.get_public_key(self.local_private_key)
+		channel_public_key = self.get_public_key(self.channel_private_key)
+		local_id = self.get_id(local_public_key)
+		#print(f"peer_public_key: {peer_public_key.hex()}")
+		#print(f"peer_id: {peer_id.hex()}")
+		#print(f"local_public_key: {local_public_key.hex()}")
+		#print(f"channel_public_key: {channel_public_key.hex()}")
 		
 		# create Channel message
 		#scheme = self.tl_schemes.get_scheme_by_name("adnl.message.createChannel")
@@ -114,6 +95,7 @@ class AdnlUdpClient():
 		
 		# create 
 		query_id = secrets.token_bytes(32).hex() # 32 bytes
+		#print(f"query_id: {query_id}")
 		scheme = self.tl_schemes.get_scheme_by_name("dht.getSignedAddressList")
 		query = scheme.id
 		
@@ -125,19 +107,19 @@ class AdnlUdpClient():
 		# create PacketContents message
 		rand1 = secrets.token_bytes(15) # 15 bytes
 		rand2 = secrets.token_bytes(15) # 15 bytes
-		print(f"rand1: {rand1.hex()}")
-		print(f"rand2: {rand2.hex()}")
+		#print(f"rand1: {rand1.hex()}")
+		#print(f"rand2: {rand2.hex()}")
 		scheme = self.tl_schemes.get_scheme_by_name("adnl.packetContents")
 		packet_contents_message = scheme.id + scheme.serialize(
 			rand1 = rand1,
 			flags = self.set_flags("flags.0,3,4,6,7,8,10"),
 			#_from = public_key_message,
-			_from = tup(scheme_name="pub.ed25519", key=local_pub.hex()),
+			_from = tup(scheme_name="pub.ed25519", key=local_public_key.hex()),
 			#from_short = 
 			#message = create_channel_message,
-			#message = tup(scheme_name="adnl.message.createChannel", key=channel_local_pub.hex(), date=timestamp),
+			#message = tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
 			messages = [
-							tup(scheme_name="adnl.message.createChannel", key=channel_local_pub.hex(), date=timestamp),
+							tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
 							tup(scheme_name="adnl.message.query", query_id=query_id, query=query)
 						],
 			#address = address_list_message,
@@ -152,20 +134,20 @@ class AdnlUdpClient():
 			#signature = 
 			rand2 = rand2
 		)
-		print(f"packet_contents_message: {packet_contents_message.hex()}")
+		#print(f"packet_contents_message: {packet_contents_message.hex()}")
 		
-		signed_message = signing_key.sign(packet_contents_message)[:64]
-		print(f"signed_message: {signed_message.hex()}")
+		signed_message = self.sign_message(self.local_private_key, packet_contents_message)
+		#print(f"signed_message: {signed_message.hex()}")
 		packet_contents_message = scheme.id + scheme.serialize(
 			rand1 = rand1,
 			flags = self.set_flags("flags.0,3,4,6,7,8,10,11"),
 			#_from = public_key_message,
-			_from = tup(scheme_name="pub.ed25519", key=local_pub.hex()),
+			_from = tup(scheme_name="pub.ed25519", key=local_public_key.hex()),
 			#from_short = 
 			#message = create_channel_message,
-			#message = tup(scheme_name="adnl.message.createChannel", key=channel_local_pub.hex(), date=timestamp),
+			#message = tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
 			messages = [
-							tup(scheme_name="adnl.message.createChannel", key=channel_local_pub.hex(), date=timestamp),
+							tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
 							tup(scheme_name="adnl.message.query", query_id=query_id, query=query)
 						],
 			#address = address_list_message,
@@ -180,13 +162,14 @@ class AdnlUdpClient():
 			signature = signed_message,
 			rand2 = rand2
 		)
-		print(f"packet_contents_message: {packet_contents_message.hex()}")
+		#print(f"packet_contents_message: {packet_contents_message.hex()}")
 		
 		checksum = self.sha256(packet_contents_message)
-		encrypted_message = self.aes_encrypt_with_secret(packet_contents_message, secret)
-		send_data = peer_id + local_pub + checksum + encrypted_message
-		print(f"checksum: {checksum.hex()}")
-		print(f"send_data: {send_data.hex()}")
+		secret = self.get_secret(self.local_private_key, peer_public_key)
+		encrypted_message = self.aes_encrypt_with_secret(packet_contents_message, secret, checksum)
+		send_data = peer_id + local_public_key + checksum + encrypted_message
+		#print(f"checksum: {checksum.hex()}")
+		#print(f"send_data: {send_data.hex()}")
 		
 		# send
 		self.sock = socket.socket(family=socket.AF_INET, type=socket.SOCK_DGRAM)
@@ -194,17 +177,68 @@ class AdnlUdpClient():
 		self.sock.connect((host, port))
 		self.sock.send(send_data)
 		
-		read_data = self.sock.recvfrom(1024)
-		print(f"{read_data}")
+		read_data, host_port = self.sock.recvfrom(1024)
+		#print(f"read_data: {len(read_data)}, {read_data.hex()}")
+		byte_stream = ByteStream(read_data)
+		read_local_id = byte_stream.read(32)
+		read_public_key = byte_stream.read(32)
+		read_checksum = byte_stream.read(32)
+		read_encrypted_message = byte_stream.read()
+		new_secret = self.get_secret(self.local_private_key, read_public_key)
+		read_message = self.aes_decrypt_with_secret(read_encrypted_message, new_secret, read_checksum)
+		checksum = self.sha256(read_message)
+		if read_local_id != local_id:
+			raise Exception("connect error: read_local_id != local_id")
+		if read_checksum != checksum:
+			raise Exception("connect error: read_checksum != checksum")
+		#print(f"read_local_id: {read_local_id == local_id}")
+		#print(f"read_checksum: {read_checksum == checksum}")
+		print(f"read_message: {read_message.hex()}")
+		
+		byte_stream = ByteStream(read_message)
+		read_scheme_id = byte_stream.read(4)
+		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
+		data = read_scheme.deserialize(byte_stream)
+		print(f"data: {data}")
 	#end define
 	
-	def aes_encrypt_with_secret(self, data, secret):
-		hash = self.sha256(data)
-		key = secret[0:16] + hash[16:32]
-		nonce = hash[0:4] + secret[20:32]
+	def sign_message(self, private_key, message):
+		signing_key = SigningKey(private_key)
+		signed_message = signing_key.sign(message)[:64]
+		return signed_message
+	#end define
+	
+	def get_secret(self, local_private_key, peer_public_key):
+		local_signing_key = SigningKey(local_private_key)
+		local_private_key_x25519 = local_signing_key.to_curve25519_private_key().encode()
+		
+		# create secret key
+		peer_verify_key = VerifyKey(peer_public_key) # 32 bytes
+		peer_public_key_x25519 = peer_verify_key.to_curve25519_public_key().encode()
+		secret = x25519.scalar_mult(local_private_key_x25519, peer_public_key_x25519)
+		return secret
+	#end define
+	
+	def get_public_key(self, private_key):
+		signing_key = SigningKey(private_key)
+		public_key = signing_key.verify_key.encode()
+		return public_key
+	#end define
+	
+	def aes_encrypt_with_secret(self, data, secret, checksum):
+		key = secret[0:16] + checksum[16:32]
+		nonce = checksum[0:4] + secret[20:32]
 		cipher = self.create_aes_cipher(key, nonce)
-		result = cipher.encrypt(data)
-		return result
+		encrypted_data = cipher.encrypt(data)
+		return encrypted_data
+	#end define
+	
+	def aes_decrypt_with_secret(self, encrypted_data, secret, checksum):
+		key = secret[0:16] + checksum[16:32]
+		nonce = checksum[0:4] + secret[20:32]
+		cipher = self.create_aes_cipher(key, nonce)
+		data = cipher.decrypt(encrypted_data)
+		return data
 	#end define
 	
 	def create_aes_cipher(self, key, nonce):
@@ -489,7 +523,6 @@ class AdnlTcpClient:
 	
 	def get_block(self, block_id_ext=None):
 		"""
-		TODO:	TLB -> BlockInfo
 		block#11ef55aa global_id:int32 info:^BlockInfo value_flow:^ValueFlow state_update:^(MERKLE_UPDATE ShardState) extra:^BlockExtra = Block;
 		"""
 		if block_id_ext is None:
@@ -521,7 +554,6 @@ class AdnlTcpClient:
 	
 	def get_block_header(self, block_id_ext=None):
 		"""
-		TODO:	TLB -> BlockInfo
 		block_info#9bc7a987 version:uint32 not_master:(## 1) after_merge:(## 1) before_split:(## 1) after_split:(## 1) want_split:Bool want_merge:Bool key_block:Bool vert_seqno_incr:(## 1) flags:(## 8) 
 		{ flags <= 1 } seq_no:# vert_seq_no:# { vert_seq_no >= vert_seqno_incr } { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no } shard:ShardIdent gen_utime:uint32 start_lt:uint64 end_lt:uint64 gen_validator_list_hash_short:uint32
 		gen_catchain_seqno:uint32 min_ref_mc_seqno:uint32 prev_key_block_seqno:uint32 gen_software:flags . 0?GlobalVersion master_ref:not_master?^BlkMasterInfo prev_ref:^(BlkPrevInfo after_merge) prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
@@ -601,7 +633,6 @@ class AdnlTcpClient:
 	
 	def get_all_shards_info(self, block_id_ext=None):
 		"""
-		TODO:	TLB	-> Hashmap
 		liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo;
 		"""
 		if block_id_ext is None:
@@ -618,7 +649,6 @@ class AdnlTcpClient:
 	
 	def get_config_params(self, params, block_id_ext=None):
 		"""
-		TODO:	TLB -> Hashmap
 		liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
 		liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
 		"""
@@ -642,7 +672,6 @@ class AdnlTcpClient:
 	
 	def get_last_transactions(self, input_addr, block_id_ext=None):
 		"""
-		TODO:	TLB -> Hashmap
 		liteServer.getTransactions count:# account:liteServer.accountId lt:long hash:int256 = liteServer.TransactionList;
 		liteServer.transactionList ids:(vector tonNode.blockIdExt) transactions:bytes = liteServer.TransactionList;
 		"""
@@ -660,7 +689,7 @@ class AdnlTcpClient:
 		# config_params_data.state_proof # TODO
 		data_cell = deserialize_boc(config_params_data.config_proof)
 		data_cell = data_cell.refs[0]
-		data = self.tlb_schemes.deserialize(data_cell, expected="ShardStateUnsplit")
+		data = self.tlb_schemes.deserialize(data_cell, expected="???")
 		print(f"get_last_transactions data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
 	#end define
 #end class
@@ -670,9 +699,9 @@ def tests():
 	Test commands from lite-client
 	"""
 	
-	host = "185.86.79.9"
-	port = 22096
-	pubkey = "6PGkPQSbyFp12esf1NqmDOaLoFA8i9+Mp5+cAx5wtTU="
+	host = "127.0.0.1"
+	port = 23227
+	pubkey = "DuCFdD/LoCi9HywfMsFrKxg+G0nKPv3RuLNrQVCA1lk="
 
 	adnl = AdnlTcpClient()
 	adnl.connect(host, port, pubkey)
@@ -709,19 +738,18 @@ def tests():
 	# allshards - Shows shard configuration from the most recent masterchain state or from masterchain state corresponding to <block-id-ext>
 	data = adnl.get_all_shards_info()
 	print("get_all_shards_info:", json.dumps(data, indent=4))
-	#print("get_all_shards_info:", data)
 	
 	# getconfig [<param>...]  Shows specified or all configuration parameters from the latest masterchain state
-	data = adnl.get_config_params(8)
-	print("get_config_params:", json.dumps(data, indent=4))
+	#data = adnl.get_config_params(8)
+	#print("get_config_params:", json.dumps(data, indent=4))
 	
 	# gethead - Shows block header for <block-id-ext>
-	#data = adnl.get_block_header()
-	#print("get_block_header:", json.dumps(data, indent=4))
+	data = adnl.get_block_header()
+	print("get_block_header:", json.dumps(data, indent=4))
 	
 	# getblock - Downloads block
-	#data = adnl.get_block()
-	#print("get_block:", json.dumps(data, indent=4))
+	data = adnl.get_block()
+	print("get_block:", json.dumps(data, indent=4))
 	#print("get_block:", data)
 	
 	# DELETE
@@ -774,10 +802,6 @@ def tests():
 #end define
 
 def tests2():
-	host = "127.0.0.1"
-	port = 23121
-	pubkey = "k+qV7zMpRtDPM0uCDV5+RjjTr2UfM8diz2DWnZY2IGk="
-	
 	host = "65.21.7.173"
 	port = 15813
 	pubkey = "fZnkoIAxrTd4xeBgVpZFRm5SvVvSx7eN3Vbe8c83YMk="
@@ -792,7 +816,7 @@ def tests2():
 ###
 
 if __name__ == "__main__":
-	#tests()
+	tests()
 	tests2()
 #end if
 

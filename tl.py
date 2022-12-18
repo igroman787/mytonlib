@@ -68,9 +68,9 @@ class TlSchemes:
 		return result
 	#end define
 	
-	def get_scheme_by_class_name(self, scheme_class_name, var_value):
+	def get_scheme_by_class_name(self, scheme_class_name, scheme_id):
 		for scheme_name, scheme in self.schemes_names.items():
-			if scheme_class_name == scheme.class_name and scheme.id == var_value[:4]:
+			if scheme_class_name == scheme.class_name and scheme.id == scheme_id:
 				return scheme
 		raise Exception(f"get_scheme_by_class_name error: TL scheme '{scheme_class_name}' not found")
 	#end define
@@ -91,6 +91,7 @@ class TlScheme:
 		self.name = None
 		self.class_name = None
 		self.vars = None
+		self.buff_result = None
 		self.parse(text)
 	#end define
 	
@@ -133,19 +134,6 @@ class TlScheme:
 		self.vars = vars
 	#end define
 	
-	def load_bytes(self, byte_stream, alen=4):
-		buff = byte_stream.read(1)
-		if buff == bytes.fromhex("fe"):
-			buff = byte_stream.read(3)
-		dlen = int.from_bytes(buff, byteorder="little")
-		rdata = byte_stream.read(dlen)
-		
-		if dlen % alen != 0:
-			nlen = alen - dlen % alen
-			null = byte_stream.read(nlen)
-		return rdata
-	#end define
-	
 	def deserialize(self, data, **send_data):
 		if type(data) == ByteStream:
 			byte_stream = data
@@ -156,13 +144,19 @@ class TlScheme:
 		#end if
 		
 		result = Dict()
+		self.buff_result = result
 		for var_name, var_type in self.vars.items():
 			result[var_name] = self.deser_types(byte_stream, var_type, send_data)
 		result.to_class()
+		result["@name"] = self.name
 		return result
 	#end define
 	
-	def deser_types(self, byte_stream, var_type, send_data=None, subvars=None):
+	def deser_types(self, byte_stream, var_type, subvars=None):
+		p = byte_stream.tell()
+		buff = byte_stream.read()
+		byte_stream.seek(p)
+		#print(f"deser_types: {var_type} -> {buff.hex()}")
 		if var_type == "int":
 			buff = byte_stream.read(4)
 			var_value = Int(buff)
@@ -173,41 +167,63 @@ class TlScheme:
 			buff = byte_stream.read(32)
 			var_value = buff.hex()
 		elif var_type == "bytes":
-			var_value = self.load_bytes(byte_stream)
+			var_value = unpack_bytes(byte_stream)
 		elif var_type == "string":
 			buff = byte_stream.read()
 			var_value = buff.decode("utf-8")
 		elif var_type == "#":
 			buff = byte_stream.read(4)
 			var_value = Uint(buff)
+		elif var_type.startswith('('):
+			var_value = self.deser_step2(byte_stream, var_type)
+		elif var_type == "vector":
+			var_value = self.deser_vector(byte_stream, subvars[0])
 		elif var_type.startswith("mode"):
-			var_value = self.deser_mode(byte_stream, var_type, send_data)
+			mode = self.buff_result.get("mode")
+			var_value = self.deser_flags(byte_stream, var_type, mode)
+		elif var_type.startswith("flags"):
+			flags = self.buff_result.get("flags")
+			var_value = self.deser_flags(byte_stream, var_type, flags)
 		else:
-			scheme = self.schemes.get_scheme_by_name(var_type)
-			var_value = scheme.deserialize(byte_stream)
+			buff = var_type.split('.')[-1][0]
+			if buff.isupper():
+				# type is implicit
+				scheme_id = byte_stream.read(4)
+				scheme = self.schemes.get_scheme_by_id(scheme_id)
+				var_value = scheme.deserialize(byte_stream)
+			else:
+				# the type is specified explicitly
+				scheme = self.schemes.get_scheme_by_name(var_type)
+				var_value = scheme.deserialize(byte_stream)
 		return var_value
 	#end define
 	
-	def deser_mode(self, byte_stream, var_type, send_data):
-		send_mode = send_data.get("mode")
-		buff = var_type.split('?')
-		modes = buff[0]
-		var_type = buff[1]
-		modes = modes.split('.')
-		mode = modes[-1]
-		buff = self.check_mode(mode, send_mode)
-		if buff is True:
-			var_value = self.deser_types(byte_stream, var_type)
-			return var_value
+	def deser_step2(self, byte_stream, var_type):
+		var_type = var_type[1:-1]
+		subvars = split_string(var_type)
+		subvar_type = subvars.pop(0)
+		#print(f"deser_step2: {subvar_type}, {subvars}")
+		var_value = self.deser_types(byte_stream, subvar_type, subvars)
+		return var_value
 	#end define
 	
-	def check_mode(self, mode, send_mode):
-		mode = int(mode)
-		send_mode_bin = BitArray(f"uint:32={send_mode}")
-		mode_len = len(send_mode_bin.bin)
-		index = mode_len - mode - 1
-		result = send_mode_bin.bin[index] == '1'
+	def deser_vector(self, byte_stream, var_type):
+		#print(f"deser_vector: {var_type}")
+		result = list()
+		buff = byte_stream.read(4)
+		dlen = Uint(buff)
+		for i in range(dlen):
+			var_value = self.deser_types(byte_stream, var_type)
+			result.append(var_value)
 		return result
+	#end define
+	
+	def deser_flags(self, byte_stream, var_type, flags):
+		flags = self.buff_result.get("flags")
+		var_in_flags, var_type = self.is_var_in_flags(var_type, flags)
+		if var_in_flags == True:
+			var_value = self.deser_types(byte_stream, var_type)
+			return var_value
 	#end define
 	
 	def serialize(self, **data):
@@ -236,8 +252,7 @@ class TlScheme:
 		elif var_type == "int256":
 			result = bytes.fromhex(var_value)
 		elif var_type == "bytes":
-			dlen = tl_len(var_value)
-			result = align_bytes(dlen + var_value)
+			result = pack_bytes(var_value)
 		elif var_type == "#":
 			result = int.to_bytes(var_value, length=4, byteorder="little", signed=False)
 		elif var_type.startswith('('):
@@ -270,7 +285,7 @@ class TlScheme:
 		if type(var_value) is not list:
 			raise Exception(f"TL serialize error: input parameter must be a 'list'.")
 		dlen = len(var_value)
-		result = int.to_bytes(dlen, length=4, byteorder="little", signed=True)
+		result = int.to_bytes(dlen, length=4, byteorder="little", signed=False)
 		for item in var_value:
 			result += self.ser_types(var_type, item)
 		return result
@@ -281,7 +296,7 @@ class TlScheme:
 		flag_str = buff[0]
 		var_name = buff[1]
 		flag_int = self.parse_flags_str(flag_str)
-		flags_int_list = self.deser_flags(flags_int)
+		flags_int_list = self.deser_flags_int(flags_int)
 		var_in_flags = False
 		if flag_int in flags_int_list:
 			var_in_flags = True
@@ -303,7 +318,7 @@ class TlScheme:
 		return result
 	#end define
 	
-	def deser_flags(self, flags_int):
+	def deser_flags_int(self, flags_int):
 		flags_len = 32
 		flags_int_list = list()
 		flags_bytes = int.to_bytes(flags_int, length=4, byteorder="big")
@@ -341,23 +356,47 @@ def split_string(text, sep=' '):
 #end define
 
 def tl_len(data):
-	dlen = len(data)
-	if dlen < 254:
-		dlen = dlen.to_bytes(1, byteorder="little")
+	data_len = len(data)
+	if data_len < 254:
+		data_len_bytes = data_len.to_bytes(1, byteorder="little")
 	else:
 		buff = bytes.fromhex("fe")
-		dlen = buff + dlen.to_bytes(3, byteorder="little")
-	return dlen
+		data_len_bytes = buff + data_len.to_bytes(3, byteorder="little")
+	return data_len_bytes
 #end define
 
-def align_bytes(data, alen=4):
-	dlen = len(data)
-	nlen = 0
-	if dlen % alen != 0:
-		nlen = alen - dlen % alen
+def align_bytes(data, align_len=4):
+	data_len = len(data)
+	null_len = 0
+	blen = data_len % align_len
+	if blen != 0:
+		null_len = align_len - blen
 	buff = bytes.fromhex("00")
-	result = data + buff * nlen
+	result = data + buff * null_len
 	return result
+#end define
+
+def pack_bytes(data):
+	data_len_bytes = tl_len(data)
+	data = align_bytes(data_len_bytes + data)
+	return data
+#end define
+
+def unpack_bytes(byte_stream, alen=4):
+	attach_len = 1
+	buff = byte_stream.read(1)
+	if buff == bytes.fromhex("fe"):
+		buff = byte_stream.read(3)
+		attach_len = 4
+	data_len = int.from_bytes(buff, byteorder="little")
+	rdata = byte_stream.read(data_len)
+	blen = (data_len + attach_len) % alen
+	if blen != 0:
+		null_len = alen - blen
+		null = byte_stream.read(null_len)
+	#print(f"unpack_bytes: {data_len}, {rdata.hex()}")
+	#print(f"unpack_bytes null: {null_len}, {null.hex()}")
+	return rdata
 #end define
 
 def crc32(text):
