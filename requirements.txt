@@ -1,0 +1,8 @@
+cffi==1.15.1
+pycparser
+pycryptodome
+PyNaCl
+x25519
+pydantic[dotenv]
+requests
+pytest
