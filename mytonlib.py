@@ -567,6 +567,7 @@ class AdnlTcpClient:
 		mode = self.set_flags("mode.null")
 		block_header_data = self.lite_server("getBlockHeader", id=block_id_ext, mode=mode)
 		data_cell = deserialize_boc(block_header_data.header_proof)
+		print(f"get_block_header data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="BlockInfo")
 		return data
 	#end define
@@ -666,31 +667,31 @@ class AdnlTcpClient:
 		# config_params_data.state_proof # TODO
 		data_cell = deserialize_boc(config_params_data.config_proof)
 		data_cell = data_cell.refs[0]
-		data = self.tlb_schemes.deserialize(data_cell, expected="ShardStateUnsplit")
 		print(f"get_config_params data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		data = self.tlb_schemes.deserialize(data_cell, expected="???")
+		print(f"get_config_params data: {data}")
+		return data
 	#end define
 	
-	def get_last_transactions(self, input_addr, block_id_ext=None):
+	def get_last_transactions(self, input_addr, count=10):
 		"""
 		liteServer.getTransactions count:# account:liteServer.accountId lt:long hash:int256 = liteServer.TransactionList;
 		liteServer.transactionList ids:(vector tonNode.blockIdExt) transactions:bytes = liteServer.TransactionList;
 		"""
-		if type(params) is int:
-			param_list = [params]
-		elif type(params) is list:
-			param_list = params
-		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
-			block_id_ext = data.last
-		#end if
 		
-		mode = self.set_flags("mode.null")
-		config_params_data = self.lite_server("getConfigParams", id=block_id_ext, mode=mode, param_list=param_list)
-		# config_params_data.state_proof # TODO
-		data_cell = deserialize_boc(config_params_data.config_proof)
-		data_cell = data_cell.refs[0]
-		data = self.tlb_schemes.deserialize(data_cell, expected="???")
-		print(f"get_last_transactions data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		workchain, addr = ParseAddr(input_addr)
+		account_id = {"workchain":workchain, "id":addr}
+		account_state = self.get_account_state(input_addr)
+		transactions_data = self.lite_server("getTransactions", count=count, account=account_id, lt=33781466000001, hash="EDC177F94D0193E81996CDC312CE7274B9316EBC985440E0D0B388453B77DF7E")
+		# transactions_data.ids # TODO
+		transaction_cells = deserialize_boc(transactions_data.transactions)
+		
+		result = list()
+		for transaction_cell in transaction_cells:
+			data = self.tlb_schemes.deserialize(transaction_cell, expected="Transaction")
+			result.append(data)
+		#end for
+		return result
 	#end define
 #end class
 
@@ -762,9 +763,9 @@ def tests():
 	
 	
 	# lasttrans - Shows or dumps specified transaction and several preceding ones
-	#data = adnl.get_last_transactions()
-	#print("get_state:", json.dumps(data, indent=4))
-	#print("get_state:", data)
+	data = adnl.get_last_transactions("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
+	print("get_last_transactions:", json.dumps(data, indent=4))
+	#print("get_last_transactions:", data)
 	
 	# listblocktrans - Lists block transactions, starting immediately after or before the specified one
 	
@@ -817,7 +818,7 @@ def tests2():
 
 if __name__ == "__main__":
 	tests()
-	tests2()
+	#tests2()
 #end if
 
 

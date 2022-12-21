@@ -1,0 +1,59 @@
+!root_list$_ {X:Type} = ROOT_LIST X;
+
+
+block_info#9bc7a987 version:uint32 
+  not_master:(## 1) 
+  after_merge:(## 1) before_split:(## 1) 
+  after_split:(## 1) 
+  want_split:Bool want_merge:Bool
+  key_block:Bool vert_seqno_incr:(## 1)
+  flags:(## 8) { flags <= 1 }
+  seq_no:# vert_seq_no:# { vert_seq_no >= vert_seqno_incr } 
+  { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no } 
+  shard:ShardIdent gen_utime:uint32
+  start_lt:uint64 end_lt:uint64
+  gen_validator_list_hash_short:uint32
+  gen_catchain_seqno:uint32
+  min_ref_mc_seqno:uint32
+  prev_key_block_seqno:uint32
+  gen_software:flags.0?GlobalVersion
+  master_ref:not_master?^BlkMasterInfo 
+  prev_ref:^(BlkPrevInfo after_merge)
+  prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
+  = BlockInfo;
+
+dns_adnl_address#ad01 adnl_addr:bits256 flags:(## 8) { flags <= 1 }
+  proto_list:flags.0?ProtoList = DNSRecord;
+
+dns_smc_address#9fd3 smc_addr:MsgAddressInt flags:(## 8) { flags <= 1 }
+  cap_list:flags.0?SmcCapList = DNSRecord;
+
+masterchain_state_extra#cc26
+  shard_hashes:ShardHashes
+  config:ConfigParams
+  ^[ flags:(## 16) { flags <= 1 }
+     validator_info:ValidatorInfo
+     prev_blocks:OldMcBlocksInfo
+     after_key_block:Bool
+     last_key_block:(Maybe ExtBlkRef)
+     block_create_stats:(flags.0)?BlockCreateStats ]
+  global_balance:CurrencyCollection
+  = McStateExtra;
+
+header_proof$_ (MERKLE_PROOF Block) = BlockHeader;
+
+transactions$_ (ROOT_LIST Transaction) = TransactionList;
+
+
+
+
+
+
+
+
+
+
+
+
+
+

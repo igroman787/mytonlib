@@ -66,12 +66,12 @@ class Slice(Cell):
 		self.level = cell.level
 		self.bit_stream = BitStream(cell.data)
 		self.refs = cell.refs
-		self.used_refs_index = 0
+		self.refs_pos = 0
 	#end define
 	
 	def read_ref(self):
-		result = self.refs[self.used_refs_index]
-		self.used_refs_index += 1
+		result = self.refs[self.refs_pos]
+		self.refs_pos += 1
 		return result
 #end class
 
@@ -84,6 +84,8 @@ def cells2dict(cells, to_json=False):
 #end define
 
 def cell2dict(cell, to_json=False):
+	if type(cell) == list:
+		return cells2dict(cell, to_json=to_json)
 	data = cell.data
 	if to_json is True:
 		data = data.hex()
@@ -95,6 +97,17 @@ def cell2dict(cell, to_json=False):
 	result["data"] = data
 	result["refs"] = cells2dict(cell.refs, to_json=to_json)
 	return result
+#end define
+
+def bits2hex(bit_stream):
+	data = ""
+	available_len = bit_stream.len - bit_stream.pos
+	while available_len >= 4:
+		data += bit_stream.read(4).hex
+		available_len = bit_stream.len - bit_stream.pos
+	if available_len > 0:
+		data += '_'
+	return data
 #end define
 
 class Dict(dict):
