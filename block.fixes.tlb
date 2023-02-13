@@ -22,6 +22,7 @@ block_info#9bc7a987 version:uint32
   prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
   = BlockInfo;
 
+// issues 001
 dns_adnl_address#ad01 adnl_addr:bits256 flags:(## 8) { flags <= 1 }
   proto_list:flags.0?ProtoList = DNSRecord;
 
@@ -40,20 +41,43 @@ masterchain_state_extra#cc26
   global_balance:CurrencyCollection
   = McStateExtra;
 
-header_proof$_ (MERKLE_PROOF Block) = BlockHeader;
+// issues 002
+header_proof$_ (MERKLE_PROOF FFBlock) = BlockHeader;
 
 transactions$_ (ROOT_LIST Transaction) = TransactionList;
 
+// issues 003
+block#11ef55aa global_id:int32
+  info:^BlockInfo value_flow:^ValueFlow
+  = FBlock;
+
+// issues 004
+block#11ef55aa global_id:int32
+  info:^BlockInfo = FFBlock;
 
 
+shard_state_proof$_ (MERKLE_PROOF ShardStateUnsplit) = ShardStateProof;
+shard_block_proof$_ (MERKLE_PROOF Block) = ShardBlockProof;
+state_proof$_ (ROOT_LIST ShardStateProof ShardBlockProof) = StateProof;
 
+// issues 005
+shard_state#9023afe2 global_id:int32
+  shard_id:ShardIdent 
+  seq_no:uint32 vert_seq_no:#
+  gen_utime:uint32 gen_lt:uint64
+  min_ref_mc_seqno:uint32
+  out_msg_queue_info:^Cell
+  before_split:(## 1)
+  accounts:^ShardAccounts
+  ^[ overload_history:uint64 underload_history:uint64
+  total_balance:CurrencyCollection
+  total_validator_fees:CurrencyCollection
+  libraries:(HashmapE 256 LibDescr)
+  master_ref:(Maybe BlkMasterInfo) ]
+  custom:(Maybe ^McStateExtra)
+  = ShardStateUnsplit;
 
+config_proof$_ (MERKLE_PROOF ShardStateUnsplit) = ConfigInfo;
 
-
-
-
-
-
-
-
+vm_stk_bits#0200 value:bits256 = VmStackValue;
 

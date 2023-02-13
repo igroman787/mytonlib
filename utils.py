@@ -5,6 +5,24 @@ import crc16
 import base64
 
 
+
+def hex2dec(h):
+	return int(h, base=16)
+#end define
+
+def dec2hex_addr(dec):
+	h = dec2hex(dec)
+	h64 = h.rjust(64, '0')
+	return h64
+#end define
+
+def dec2hex(dec):
+	h = f"{dec:x}"
+	if len(h) % 2 > 0:
+		h = '0' + h
+	return h
+#end define
+
 def ParseAddr(inputAddr):
 	if IsAddrB64(inputAddr):
 		workchain, addr, bounceable = ParseAddrB64(inputAddr)

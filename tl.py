@@ -153,9 +153,9 @@ class TlScheme:
 	#end define
 	
 	def deser_types(self, byte_stream, var_type, subvars=None):
-		p = byte_stream.tell()
-		buff = byte_stream.read()
-		byte_stream.seek(p)
+		#p = byte_stream.tell()
+		#buff = byte_stream.read()
+		#byte_stream.seek(p)
 		#print(f"deser_types: {var_type} -> {buff.hex()}")
 		if var_type == "int":
 			buff = byte_stream.read(4)
@@ -169,7 +169,7 @@ class TlScheme:
 		elif var_type == "bytes":
 			var_value = unpack_bytes(byte_stream)
 		elif var_type == "string":
-			buff = byte_stream.read()
+			buff = unpack_bytes(byte_stream)
 			var_value = buff.decode("utf-8")
 		elif var_type == "#":
 			buff = byte_stream.read(4)
@@ -219,7 +219,6 @@ class TlScheme:
 	#end define
 	
 	def deser_flags(self, byte_stream, var_type, flags):
-		flags = self.buff_result.get("flags")
 		var_in_flags, var_type = self.is_var_in_flags(var_type, flags)
 		if var_in_flags == True:
 			var_value = self.deser_types(byte_stream, var_type)
@@ -229,11 +228,16 @@ class TlScheme:
 	def serialize(self, **data):
 		result = bytes()
 		flags = data.get("flags")
+		mode = data.get("mode")
 		for var_name, var_type in self.vars.items():
 			if var_name == "from":
 				var_name = "_from"
 			if "flags." in var_type:
 				var_in_flags, var_type = self.is_var_in_flags(var_type, flags)
+				if var_in_flags == False:
+					continue
+			if "mode." in var_type:
+				var_in_flags, var_type = self.is_var_in_flags(var_type, mode)
 				if var_in_flags == False:
 					continue
 			var_value = data.get(var_name)
@@ -245,6 +249,7 @@ class TlScheme:
 	#end define
 	
 	def ser_types(self, var_type, var_value, subvars=None):
+		#print(f"ser_types: {var_type}, <- {var_value}")
 		if var_type == "int":
 			result = int.to_bytes(var_value, length=4, byteorder="little", signed=True)
 		elif var_type == "long":
@@ -291,16 +296,16 @@ class TlScheme:
 		return result
 	#end define
 	
-	def is_var_in_flags(self, var_name, flags_int):
-		buff = var_name.split('?')
+	def is_var_in_flags(self, var_type, flags_int):
+		buff = var_type.split('?')
 		flag_str = buff[0]
-		var_name = buff[1]
+		var_type = buff[1]
 		flag_int = self.parse_flags_str(flag_str)
 		flags_int_list = self.deser_flags_int(flags_int)
 		var_in_flags = False
 		if flag_int in flags_int_list:
 			var_in_flags = True
-		return var_in_flags, var_name
+		return var_in_flags, var_type
 	#end define
 	
 	def parse_flags_str(self, flags_str):

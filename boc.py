@@ -121,16 +121,16 @@ def deserialize_boc(data):
 		refs = refs_new
 		
 		# if not full byte
-		bits_sz = ln * 4
+		bits_len = ln * 4
 		if ln%2 != 0:
 			for y in range(8):
 				if (payload[len(payload)-1]>>y)&1 == 1:
-					bits_sz += 3 - y
+					bits_len += 3 - y
 					break
 		#end if
 		
 		cells[i].special = special
-		cells[i].bits_sz = bits_sz
+		cells[i].bits_len = bits_len
 		cells[i].level = level_mask
 		cells[i].data = payload
 		cells[i].refs = refs
@@ -262,7 +262,7 @@ def index(order_cells):
 def serialize_cell(cell, cell_size_bytes, is_hash=False):
 	payload = cell.data
 	
-	unused_bits = 8 - (cell.bits_sz % 8)
+	unused_bits = 8 - (cell.bits_len % 8)
 	if unused_bits != 8:
 		payload[len(payload)-1] += 1 << (unused_bits - 1)
 	#end if
@@ -287,8 +287,8 @@ def serialize_cell(cell, cell_size_bytes, is_hash=False):
 #end define
 
 def descriptors(cell):
-	ceil_bytes_num = int(cell.bits_sz / 8)
-	if cell.bits_sz % 8 != 0:
+	ceil_bytes_num = int(cell.bits_len / 8)
+	if cell.bits_len % 8 != 0:
 		ceil_bytes_num += 1
 	#end if
 	
@@ -298,7 +298,7 @@ def descriptors(cell):
 	#end if
 	
 	d1 = len(cell.refs) + spec_bit + cell.level*32
-	d2 = int(ceil_bytes_num + cell.bits_sz/8)
+	d2 = int(ceil_bytes_num + cell.bits_len/8)
 	d1_bytes = int.to_bytes(d1, length=1, byteorder="big", signed=False)
 	d2_bytes = int.to_bytes(d2, length=1, byteorder="big", signed=False)
 	result = d1_bytes + d2_bytes

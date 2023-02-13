@@ -20,8 +20,8 @@ from Crypto.Util import Counter
 from tl import TlSchemes, Int, tl_len
 from tlb import TlbSchemes
 from boc import serialize_boc, deserialize_boc
-from utils import ParseAddr
-from mytypes import cell2dict
+from utils import ParseAddr, hex2dec
+from mytypes import cell2dict, Dict
 
 
 def tup(**data):
@@ -34,8 +34,10 @@ class AdnlUdpClient():
 		self.sock = None
 		self.local_private_key = secrets.token_bytes(32)
 		self.channel_private_key = secrets.token_bytes(32)
+		self.channels = list()
 		self.tl_schemes = TlSchemes()
 		self.tlb_schemes = TlbSchemes()
+		self.tlb_schemes.to_json = True # return Cell data as hex
 		self.load_tl_schemes()
 		self.load_tlb_schemes()
 	#end define
@@ -80,95 +82,49 @@ class AdnlUdpClient():
 		local_public_key = self.get_public_key(self.local_private_key)
 		channel_public_key = self.get_public_key(self.channel_private_key)
 		local_id = self.get_id(local_public_key)
-		#print(f"peer_public_key: {peer_public_key.hex()}")
-		#print(f"peer_id: {peer_id.hex()}")
-		#print(f"local_public_key: {local_public_key.hex()}")
-		#print(f"channel_public_key: {channel_public_key.hex()}")
-		
-		# create Channel message
-		#scheme = self.tl_schemes.get_scheme_by_name("adnl.message.createChannel")
-		#create_channel_message = scheme.id + scheme.serialize(key=channel_local_pub.hex(), date=timestamp)
 		
 		# create PublicKey message
-		#scheme = self.tl_schemes.get_scheme_by_name("pub.ed25519")
-		#public_key_message = scheme.id + scheme.serialize(key=local_pub.hex())
+		public_key_message = Dict(scheme_name="pub.ed25519", key=local_public_key.hex())
 		
-		# create 
+		# create createChannel message
+		create_channel_message = Dict(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp)
+		
+		# create getSignedAddressList message
 		query_id = secrets.token_bytes(32).hex() # 32 bytes
-		#print(f"query_id: {query_id}")
 		scheme = self.tl_schemes.get_scheme_by_name("dht.getSignedAddressList")
-		query = scheme.id
+		get_signed_address_list_message = Dict(scheme_name="adnl.message.query", query_id=query_id, query=scheme.id)
 		
-		# create AddressList message
-		#scheme = self.tl_schemes.get_scheme_by_name("adnl.addressList")
-		#address_list_message = scheme.serialize(
-		#	addrs=[], version=timestamp, reinit_date=timestamp, priority=0, expire_at=0)
+		# create addressList message
+		address_list_message = Dict(scheme_name="adnl.addressList", addrs=[], version=timestamp, reinit_date=timestamp, priority=0, expire_at=0)
 		
 		# create PacketContents message
-		rand1 = secrets.token_bytes(15) # 15 bytes
-		rand2 = secrets.token_bytes(15) # 15 bytes
-		#print(f"rand1: {rand1.hex()}")
-		#print(f"rand2: {rand2.hex()}")
 		scheme = self.tl_schemes.get_scheme_by_name("adnl.packetContents")
-		packet_contents_message = scheme.id + scheme.serialize(
-			rand1 = rand1,
+		packet_contents = Dict(
+			rand1 = secrets.token_bytes(15),
 			flags = self.set_flags("flags.0,3,4,6,7,8,10"),
-			#_from = public_key_message,
-			_from = tup(scheme_name="pub.ed25519", key=local_public_key.hex()),
-			#from_short = 
-			#message = create_channel_message,
-			#message = tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
-			messages = [
-							tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
-							tup(scheme_name="adnl.message.query", query_id=query_id, query=query)
-						],
-			#address = address_list_message,
-			address = tup(scheme_name="adnl.addressList", addrs=[], version=timestamp, reinit_date=timestamp, priority=0, expire_at=0),
-			#priority_address = 
+			_from = public_key_message,
+			messages = [create_channel_message, get_signed_address_list_message],
+			address = address_list_message,
 			seqno = 1,
 			confirm_seqno = 0,
 			recv_addr_list_version = timestamp,
-			#recv_priority_addr_list_version = 
 			reinit_date = timestamp,
 			dst_reinit_date = 0,
-			#signature = 
-			rand2 = rand2
+			signature = None,
+			rand2 = secrets.token_bytes(15)
 		)
-		#print(f"packet_contents_message: {packet_contents_message.hex()}")
+		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
 		
-		signed_message = self.sign_message(self.local_private_key, packet_contents_message)
-		#print(f"signed_message: {signed_message.hex()}")
-		packet_contents_message = scheme.id + scheme.serialize(
-			rand1 = rand1,
-			flags = self.set_flags("flags.0,3,4,6,7,8,10,11"),
-			#_from = public_key_message,
-			_from = tup(scheme_name="pub.ed25519", key=local_public_key.hex()),
-			#from_short = 
-			#message = create_channel_message,
-			#message = tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
-			messages = [
-							tup(scheme_name="adnl.message.createChannel", key=channel_public_key.hex(), date=timestamp),
-							tup(scheme_name="adnl.message.query", query_id=query_id, query=query)
-						],
-			#address = address_list_message,
-			address = tup(scheme_name="adnl.addressList", addrs=[], version=timestamp, reinit_date=timestamp, priority=0, expire_at=0),
-			#priority_address = 
-			seqno = 1,
-			confirm_seqno = 0,
-			recv_addr_list_version = timestamp,
-			#recv_priority_addr_list_version = 
-			reinit_date = timestamp,
-			dst_reinit_date = 0,
-			signature = signed_message,
-			rand2 = rand2
-		)
+		# create PacketContents message with signature
+		packet_contents.flags = self.set_flags("flags.0,3,4,6,7,8,10,11")
+		packet_contents.signature = self.sign_message(self.local_private_key, packet_contents_message)
+		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
 		#print(f"packet_contents_message: {packet_contents_message.hex()}")
 		
 		checksum = self.sha256(packet_contents_message)
 		secret = self.get_secret(self.local_private_key, peer_public_key)
 		encrypted_message = self.aes_encrypt_with_secret(packet_contents_message, secret, checksum)
 		send_data = peer_id + local_public_key + checksum + encrypted_message
-		#print(f"checksum: {checksum.hex()}")
 		#print(f"send_data: {send_data.hex()}")
 		
 		# send
@@ -191,15 +147,64 @@ class AdnlUdpClient():
 			raise Exception("connect error: read_local_id != local_id")
 		if read_checksum != checksum:
 			raise Exception("connect error: read_checksum != checksum")
-		#print(f"read_local_id: {read_local_id == local_id}")
-		#print(f"read_checksum: {read_checksum == checksum}")
-		print(f"read_message: {read_message.hex()}")
+		#print(f"read_message: {read_message.hex()}")
 		
 		byte_stream = ByteStream(read_message)
 		read_scheme_id = byte_stream.read(4)
 		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
 		data = read_scheme.deserialize(byte_stream)
-		print(f"data: {data}")
+		
+		confirm_channel_message = self.get_message_by_name(data.messages, "adnl.message.confirmChannel")
+		print(f"confirm_channel_message: {confirm_channel_message}")
+		channel_peer_public_key = bytes.fromhex(confirm_channel_message.key)
+		channel_secret = self.get_secret(self.channel_private_key, channel_peer_public_key)
+		channel_secret2 = channel_secret[::-1]
+		print(f"channel_secret: {channel_secret.hex()}")
+		print(f"channel_secret2: {channel_secret2.hex()}")
+		if local_id > peer_id:
+			channel_tx_key = channel_secret
+			channel_rx_key = channel_secret2
+		elif local_id < peer_id:
+			channel_tx_key = channel_secret2
+			channel_rx_key = channel_secret
+		else:
+			channel_tx_key = channel_secret
+			channel_rx_key = channel_secret
+		#end if
+		print(f"channel_tx_key: {channel_tx_key.hex()}")
+		print(f"channel_rx_key: {channel_rx_key.hex()}")
+		channel = Dict()
+		channel["tx_key"] = channel_tx_key
+		channel["rx_key"] = channel_rx_key
+		self.channels.append(channel)
+		
+		# send new message into channel
+		scheme = self.tl_schemes.get_scheme_by_name("adnl.packetContents")
+		packet_contents = Dict(
+			rand1 = secrets.token_bytes(15),
+			flags = self.set_flags("flags.2,6,7"),
+			message = get_signed_address_list_message,
+			seqno = 2,
+			confirm_seqno = 1,
+			rand2 = secrets.token_bytes(15)
+		)
+		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
+		checksum = self.sha256(packet_contents_message)
+		encrypted_message = self.aes_encrypt_with_secret(packet_contents_message, channel_tx_key, checksum)
+		channel_tx_public_key = self.get_public_key(channel_tx_key)
+		tx_public_key_id = self.get_id(channel_tx_public_key)
+		send_data = tx_public_key_id + checksum + encrypted_message
+		print(f"send_data: {send_data.hex()}")
+		self.sock.send(send_data)
+		read_data, host_port = self.sock.recvfrom(1024)
+		print(f"read_data: {len(read_data)}, {read_data.hex()}")
+	#end define
+	
+	def get_message_by_name(self, messages, name):
+		for message in messages:
+			message_name = message.get("@name")
+			if message_name == name:
+				return message
 	#end define
 	
 	def sign_message(self, private_key, message):
@@ -272,7 +277,7 @@ class AdnlTcpClient:
 		self.rx_cipher = None
 		self.tx_cipher = None
 		self.tl_schemes = TlSchemes()
-		self.tlb_schemes = TlbSchemes()
+		self.tlb_schemes = TlbSchemes(to_json=True) # return Cell data as hex
 		self.load_tl_schemes()
 		self.load_tlb_schemes()
 	#end define
@@ -291,6 +296,7 @@ class AdnlTcpClient:
 			self.tlb_schemes.load_schemes(dir)
 		else:
 			raise Exception("Tlb schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
+		self.tlb_schemes.load_schemes("block.fixes.tlb")
 	#end define
 	
 	def add_log(self, text, type):
@@ -498,6 +504,7 @@ class AdnlTcpClient:
 		
 		# get
 		read_data = self.lite_server_query(send_data)
+		#print(f"get: {read_data.hex()}")
 		byte_stream = ByteStream(read_data)
 		read_scheme_id = byte_stream.read(4)
 		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
@@ -531,8 +538,10 @@ class AdnlTcpClient:
 		#end if
 		
 		block_data = self.lite_server("getBlock", id=block_id_ext)
+		#print(f"get_block block_data: {block_data.data.hex()}")
 		data_cell = deserialize_boc(block_data.data)
-		data = self.tlb_schemes.deserialize(data_cell, expected="Block")
+		#print(f"get_block data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		data = self.tlb_schemes.deserialize(data_cell, expected="FBlock")
 		return data
 	#end define
 	
@@ -554,10 +563,8 @@ class AdnlTcpClient:
 	
 	def get_block_header(self, block_id_ext=None):
 		"""
-		block_info#9bc7a987 version:uint32 not_master:(## 1) after_merge:(## 1) before_split:(## 1) after_split:(## 1) want_split:Bool want_merge:Bool key_block:Bool vert_seqno_incr:(## 1) flags:(## 8) 
-		{ flags <= 1 } seq_no:# vert_seq_no:# { vert_seq_no >= vert_seqno_incr } { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no } shard:ShardIdent gen_utime:uint32 start_lt:uint64 end_lt:uint64 gen_validator_list_hash_short:uint32
-		gen_catchain_seqno:uint32 min_ref_mc_seqno:uint32 prev_key_block_seqno:uint32 gen_software:flags . 0?GlobalVersion master_ref:not_master?^BlkMasterInfo prev_ref:^(BlkPrevInfo after_merge) prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
-		= BlockInfo;
+		liteServer.getBlockHeader id:tonNode.blockIdExt mode:# = liteServer.BlockHeader;
+		liteServer.blockHeader id:tonNode.blockIdExt mode:# header_proof:bytes = liteServer.BlockHeader;
 		"""
 		if block_id_ext is None:
 			data = self.lite_server("getMasterchainInfo")
@@ -567,8 +574,8 @@ class AdnlTcpClient:
 		mode = self.set_flags("mode.null")
 		block_header_data = self.lite_server("getBlockHeader", id=block_id_ext, mode=mode)
 		data_cell = deserialize_boc(block_header_data.header_proof)
-		print(f"get_block_header data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
-		data = self.tlb_schemes.deserialize(data_cell, expected="BlockInfo")
+		#print(f"get_block_header data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		data = self.tlb_schemes.deserialize(data_cell, expected="BlockHeader")
 		return data
 	#end define
 	
@@ -608,14 +615,18 @@ class AdnlTcpClient:
 		# data.proof # TODO
 		# data.shard_proof # TODO
 		data_cell = deserialize_boc(data.result)
-		print(f"run_smc_method data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		#print(f"run_smc_method data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="VmStack")
-		return data
+		if "value" in data.stack.tos:
+			return data.stack.tos.value
+		return data.stack.tos
 	#end define
 	
 	def get_account_state(self, input_addr, block_id_ext=None):
 		"""
+		TODO: (MERKLE_PROOF ShardStateUnsplit)
 		liteServer.getAccountState id:tonNode.blockIdExt account:liteServer.accountId = liteServer.AccountState;
+		liteServer.accountState id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:bytes proof:bytes state:bytes = liteServer.AccountState;
 		"""
 		if block_id_ext is None:
 			data = self.lite_server("getMasterchainInfo")
@@ -628,13 +639,22 @@ class AdnlTcpClient:
 		# account_data.proof # TODO
 		# account_data.shard_proof # TODO
 		state_cell = deserialize_boc(account_data.state)
+		proof_cell = deserialize_boc(account_data.proof)
+		#shard_proof_cell = deserialize_boc(account_data.shard_proof)
 		account_state = self.tlb_schemes.deserialize(state_cell, expected="Account")
+		shard_proof_state = self.tlb_schemes.deserialize(proof_cell[0], expected="ShardStateProof")
+		#print(f"shard_proof_state: {json.dumps(shard_proof_state, indent=4)}")
+		account_descr = shard_proof_state.virtual_root.accounts.get(hex2dec(addr))
+		account_state["last_trans_lt"] = account_descr.last_trans_lt
+		account_state["last_trans_hash"] = account_descr.last_trans_hash
+		account_state.to_class()
 		return account_state
 	#end define
 	
 	def get_all_shards_info(self, block_id_ext=None):
 		"""
 		liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo;
+		liteServer.allShardsInfo id:tonNode.blockIdExt proof:bytes data:bytes = liteServer.AllShardsInfo;
 		"""
 		if block_id_ext is None:
 			data = self.lite_server("getMasterchainInfo")
@@ -645,11 +665,13 @@ class AdnlTcpClient:
 		# shards_data.proof # TODO
 		data_cell = deserialize_boc(shards_data.data)
 		data = self.tlb_schemes.deserialize(data_cell, expected="ShardHashes")
+		print(f"get_all_shards_info: shards_data.id={shards_data.id}")
 		return data
 	#end define
 	
 	def get_config_params(self, params, block_id_ext=None):
 		"""
+		TODO: (MERKLE_PROOF ShardStateUnsplit)
 		liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
 		liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
 		"""
@@ -666,10 +688,29 @@ class AdnlTcpClient:
 		config_params_data = self.lite_server("getConfigParams", id=block_id_ext, mode=mode, param_list=param_list)
 		# config_params_data.state_proof # TODO
 		data_cell = deserialize_boc(config_params_data.config_proof)
-		data_cell = data_cell.refs[0]
+		#data_cell = data_cell.refs[0]
 		print(f"get_config_params data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
-		data = self.tlb_schemes.deserialize(data_cell, expected="???")
+		data = self.tlb_schemes.deserialize(data_cell, expected="ConfigInfo")
 		print(f"get_config_params data: {data}")
+		return data
+	#end define
+	
+	def get_one_transaction(self, block_id_ext, account_id, trans_lt):
+		"""
+		liteServer.getOneTransaction id:tonNode.blockIdExt account:liteServer.accountId lt:long = liteServer.TransactionInfo;
+		liteServer.transactionInfo id:tonNode.blockIdExt proof:bytes transaction:bytes = liteServer.TransactionInfo;
+		"""
+		
+		if block_id_ext is None:
+			data = self.lite_server("getMasterchainInfo")
+			block_id_ext = data.last
+		#end if
+		
+		transaction_data = self.lite_server("getOneTransaction", id=block_id_ext, account=account_id, lt=trans_lt)
+		# transaction_data.proof # TODO
+		#print(f"get_one_transaction transaction_data: {transaction_data}")
+		transaction_cell = deserialize_boc(transaction_data.transaction)
+		data = self.tlb_schemes.deserialize(transaction_cell, expected="Transaction")
 		return data
 	#end define
 	
@@ -682,9 +723,12 @@ class AdnlTcpClient:
 		workchain, addr = ParseAddr(input_addr)
 		account_id = {"workchain":workchain, "id":addr}
 		account_state = self.get_account_state(input_addr)
-		transactions_data = self.lite_server("getTransactions", count=count, account=account_id, lt=33781466000001, hash="EDC177F94D0193E81996CDC312CE7274B9316EBC985440E0D0B388453B77DF7E")
+		transactions_data = self.lite_server("getTransactions", count=count, account=account_id, lt=account_state.last_trans_lt, hash=account_state.last_trans_hash)
 		# transactions_data.ids # TODO
 		transaction_cells = deserialize_boc(transactions_data.transactions)
+		if type(transaction_cells) != list:
+			transaction_cells = [transaction_cells]
+		#end if
 		
 		result = list()
 		for transaction_cell in transaction_cells:
@@ -692,6 +736,64 @@ class AdnlTcpClient:
 			result.append(data)
 		#end for
 		return result
+	#end define
+	
+	def get_block_transactions(self, block_id_ext, count=1000):
+		"""
+		liteServer.listBlockTransactions id:tonNode.blockIdExt mode:# count:# after:mode.7?liteServer.transactionId3 reverse_order:mode.6?true want_proof:mode.5?true = liteServer.BlockTransactions;
+		liteServer.blockTransactions id:tonNode.blockIdExt req_count:# incomplete:Bool ids:(vector liteServer.transactionId) proof:bytes = liteServer.BlockTransactions;
+		"""
+		
+		mode = self.set_flags("mode.0.1.2")
+		transactions_data = self.lite_server("listBlockTransactions", id=block_id_ext, mode=mode, count=count)
+		#print(f"get_block_transactions: transactions_data={transactions_data}")
+		return transactions_data.ids
+	#end define
+	
+	def lookup_block(self, workchain, shard, seqno=-1, lt=None, utime=None):
+		"""
+		liteServer.lookupBlock mode:# id:tonNode.blockId lt:mode.1?long utime:mode.2?int = liteServer.BlockHeader;
+		liteServer.blockHeader id:tonNode.blockIdExt mode:# header_proof:bytes = liteServer.BlockHeader;
+		"""
+		
+		if seqno > 0:
+			mode_str = "mode.0"
+		elif lt != None:
+			mode_str = "mode.1"
+		elif utime != None:
+			mode_str = "mode.2"
+		mode = self.set_flags(mode_str)
+		block_id = {"workchain": workchain, "shard": shard, "seqno": seqno}
+		block_data = self.lite_server("lookupBlock", mode=mode, id=block_id, lt=lt, utime=utime)
+		block_cell = deserialize_boc(block_data.header_proof)
+		#result = self.tlb_schemes.deserialize(block_cell, expected="BlockHeader")
+		return block_data.id
+	#end define
+	
+	def send_ext_msg_from_filename(self, filename):
+		file = open(filename, 'rb')
+		data = file.read()
+		file.close()
+		
+		result = self.send_ext_msg(data)
+		return result
+	#end define
+	
+	def send_ext_msg(self, body):
+		"""
+		liteServer.sendMessage body:bytes = liteServer.SendMsgStatus;
+		liteServer.sendMsgStatus status:int = liteServer.SendMsgStatus;
+		"""
+		
+		byte_stream = ByteStream(body)
+		prefix = byte_stream.read(4)
+		boc_prefix = bytes.fromhex("b5ee9c72")
+		if prefix != boc_prefix:
+			raise Exception("send_ext_msg error: body is not a boc")
+		#end if
+		
+		data = self.lite_server("sendMessage", body=body)
+		return data
 	#end define
 #end class
 
@@ -713,25 +815,24 @@ def tests():
 	print("get_time:", json.dumps(data, indent=4))
 
 	# last - Get last block and state info from server
-	data = adnl.get_masterchain_info()
-	print("get_masterchain_info:", json.dumps(data, indent=4))
-	print(f"data.last.seqno: {data.last.seqno}")
-	
-	# sendfile - Load a serialized message from <filename> and send it to server
+	mc_info = adnl.get_masterchain_info()
+	print("get_masterchain_info:", json.dumps(mc_info, indent=4))
+	print(f"mc_info.last.seqno: {mc_info.last.seqno}")
 
 	# getaccount - Loads the most recent state of specified account
 	data = adnl.get_account_state("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
 	print("get_account_state:", json.dumps(data, indent=4))
 	
 	# runmethod - Runs GET method <method-id> of account <addr> with specified parameters
-	#data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
-	#data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "seqno")
-	#data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "get_public_key")
-	#print("run_smc_method:", json.dumps(data, indent=4))
-	#print("run_smc_method:", data)
+	data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
+	print("run_smc_method_1:", json.dumps(data, indent=4))
+	data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "seqno")
+	print("run_smc_method_2:", json.dumps(data, indent=4))
+	data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "get_public_key")
+	print("run_smc_method_3:", json.dumps(data, indent=4))
 	
 	# dnsresolve - Resolves a domain starting from root dns smart contract
-	
+	#*
 	
 	# dnsresolvestep - Resolves a subdomain using dns smart contract <addr>
 	
@@ -741,17 +842,16 @@ def tests():
 	print("get_all_shards_info:", json.dumps(data, indent=4))
 	
 	# getconfig [<param>...]  Shows specified or all configuration parameters from the latest masterchain state
-	#data = adnl.get_config_params(8)
-	#print("get_config_params:", json.dumps(data, indent=4))
+	data = adnl.get_config_params(8)
+	print("get_config_params:", json.dumps(data, indent=4))
 	
 	# gethead - Shows block header for <block-id-ext>
 	data = adnl.get_block_header()
 	print("get_block_header:", json.dumps(data, indent=4))
 	
 	# getblock - Downloads block
-	data = adnl.get_block()
-	print("get_block:", json.dumps(data, indent=4))
-	#print("get_block:", data)
+	block_info = adnl.get_block()
+	print("get_block:", json.dumps(block_info, indent=4))
 	
 	# DELETE
 	# getstate - Downloads state corresponding to specified block
@@ -759,25 +859,30 @@ def tests():
 	#print("get_state:", json.dumps(data, indent=4))
 	#print("get_state:", data)
 	
-	# dumptrans - Dumps one transaction of specified account
-	
-	
 	# lasttrans - Shows or dumps specified transaction and several preceding ones
-	data = adnl.get_last_transactions("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
+	data = adnl.get_last_transactions("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", 1)
 	print("get_last_transactions:", json.dumps(data, indent=4))
-	#print("get_last_transactions:", data)
 	
 	# listblocktrans - Lists block transactions, starting immediately after or before the specified one
+	block_trans = adnl.get_block_transactions(mc_info.last)
+	print("get_block_transactions:", json.dumps(block_trans, indent=4))
 	
+	# dumptrans - Dumps one transaction of specified account
+	account_id = {"workchain": mc_info.last.workchain, "id": block_trans[0].account}
+	data = adnl.get_one_transaction(mc_info.last, account_id, block_trans[0].lt)
+	print("get_one_transaction:", json.dumps(data, indent=4))
 	
 	# byseqno - Looks up a block by workchain, shard and seqno, and shows its header
-	
+	data = adnl.lookup_block(mc_info.last.workchain, mc_info.last.shard, mc_info.last.seqno-10)
+	print("byseqno:", json.dumps(data, indent=4))
 	
 	# bylt - Looks up a block by workchain, shard and logical time, and shows its header
-	
+	data = adnl.lookup_block(mc_info.last.workchain, mc_info.last.shard, lt=block_info.info.start_lt)
+	print("bylt:", json.dumps(data, indent=4))
 	
 	# byutime - Looks up a block by workchain, shard and creation time, and shows its header
-	
+	data = adnl.lookup_block(mc_info.last.workchain, mc_info.last.shard, utime=block_info.info.gen_utime-100)
+	print("byutime:", json.dumps(data, indent=4))
 	
 	# creatorstats - Lists block creator statistics by validator public key
 	
@@ -786,20 +891,24 @@ def tests():
 	
 	
 	# checkload - Checks whether all validators worked properly during specified time interval, and optionally saves proofs into <savefile-prefix>-<n>.boc
-	
+	#*
 	
 	# loadproofcheck - Checks a validator misbehavior proof previously created by checkload
-	
+	#*
 	
 	# pastvalsets     Lists known past validator set ids and their hashes
 	
 	
 	# savecomplaints - Saves all complaints registered for specified validator set id into files <filename-pfx><complaint-hash>.boc
-	
+	#*
 	
 	# complaintprice - Computes the price (in nanograms) for creating a complaint
 	
 	
+	# sendfile - Load a serialized message from <filename> and send it to server
+	body = bytes.fromhex("b5ee9c7241010101000e0000180000000400000000628f328d83ad456c")
+	data = adnl.send_ext_msg(body)
+	print("send_ext_msg:", json.dumps(data, indent=4))
 #end define
 
 def tests2():
