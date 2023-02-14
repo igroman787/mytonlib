@@ -576,7 +576,7 @@ class AdnlTcpClient:
 		data_cell = deserialize_boc(block_header_data.header_proof)
 		#print(f"get_block_header data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="BlockHeader")
-		return data
+		return data.virtual_root
 	#end define
 	
 	def set_flags(self, flags):
@@ -687,12 +687,11 @@ class AdnlTcpClient:
 		mode = self.set_flags("mode.null")
 		config_params_data = self.lite_server("getConfigParams", id=block_id_ext, mode=mode, param_list=param_list)
 		# config_params_data.state_proof # TODO
-		data_cell = deserialize_boc(config_params_data.config_proof)
-		#data_cell = data_cell.refs[0]
-		print(f"get_config_params data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
-		data = self.tlb_schemes.deserialize(data_cell, expected="ConfigInfo")
-		print(f"get_config_params data: {data}")
-		return data
+		#state_proof_cell = deserialize_boc(config_params_data.state_proof)
+		config_proof_cell = deserialize_boc(config_params_data.config_proof)
+		#print(f"get_config_params config_proof_cell: {json.dumps(cell2dict(config_proof_cell, True), indent=4)}")
+		data = self.tlb_schemes.deserialize(config_proof_cell, expected="ConfigInfo")
+		return data.virtual_root.custom.config.config
 	#end define
 	
 	def get_one_transaction(self, block_id_ext, account_id, trans_lt):
@@ -842,7 +841,7 @@ def tests():
 	print("get_all_shards_info:", json.dumps(data, indent=4))
 	
 	# getconfig [<param>...]  Shows specified or all configuration parameters from the latest masterchain state
-	data = adnl.get_config_params(8)
+	data = adnl.get_config_params(4)
 	print("get_config_params:", json.dumps(data, indent=4))
 	
 	# gethead - Shows block header for <block-id-ext>

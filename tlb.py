@@ -172,6 +172,9 @@ class TlbSchemes:
 			var_value = self.deser_either(slice, subvars[0], subvars[1])
 		elif var_type == "BinTree":
 			var_value = self.deser_bin_tree(slice, subvars[0])
+		elif var_type == "Hashmap":
+			var_value = dict()
+			self.deser_hashmap(var_value, slice, int(subvars[0]), subvars[1])
 		elif var_type == "HashmapE":
 			var_value = self.deser_hashmap_e(slice, subvars[0], subvars[1])
 		elif var_type == "HashmapAugE":
@@ -314,14 +317,17 @@ class TlbSchemes:
 		# hme_root
 		new_cell = slice.read_ref()
 		new_slice = Slice(new_cell)
-		self.deser_hashmap(result, new_slice, n, s, x_type)
+		self.deser_hashmap(result, new_slice, n, x_type, s)
 		#print(f"deser_hashmap_e: {result}")
 		return result
 	#end define
 	
-	def deser_hashmap(self, result, slice, n, s, x_type):
+	def deser_hashmap(self, result, slice, n, x_type, s=None):
+		if s == None:
+			s = ""
 		if slice.special == True:
-			return self.deser_special_cell(slice, x_type)
+			return
+		#print(f"deser_hashmap: {n}, {x_type}")
 		# hm_edge
 		l, s2 = self.deser_hm_label(slice, n, s)
 		m = n - l
@@ -365,7 +371,7 @@ class TlbSchemes:
 	
 	def deser_hashmap_node(self, result, slice, m, s, x_type):
 		if slice.special == True:
-			return self.deser_special_cell(slice, x_type)
+			return
 		if m == 0:
 			# hmn_leaf
 			#print(f"hmn_leaf: {x_type}")
@@ -373,6 +379,7 @@ class TlbSchemes:
 			buff = BitStream(bin=s)
 			var_key = buff.uint
 			result[var_key] = var_value
+			#print(f"deser_hashmap_node {var_key} -> {var_value}")
 			return
 		#end if
 		
@@ -384,14 +391,14 @@ class TlbSchemes:
 		s2 = s + '0'
 		new_cell = slice.read_ref()
 		new_slice = Slice(new_cell)
-		self.deser_hashmap(result, new_slice, n, s2, x_type)
+		self.deser_hashmap(result, new_slice, n, x_type, s2)
 		
 		# rigth
 		#print("rigth")
 		s2 = s + '1'
 		new_cell = slice.read_ref()
 		new_slice = Slice(new_cell)
-		self.deser_hashmap(result, new_slice, n, s2, x_type)
+		self.deser_hashmap(result, new_slice, n, x_type, s2)
 	#end define
 	
 	def deser_hashmap_aug_e(self, slice, n, x_type, y_type):
@@ -432,7 +439,7 @@ class TlbSchemes:
 		
 		if m == 0:
 			# ahmn_leaf
-			#print(f"hmn_leaf: {x_type}")
+			#print(f"ahmn_leaf: {x_type}")
 			var_extra = self.deser_types(slice, y_type)
 			var_value = self.deser_types(slice, x_type)
 			buff = BitStream(bin=s)
