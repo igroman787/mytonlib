@@ -1,0 +1,83 @@
+!root_list$_ {X:Type} = ROOT_LIST X;
+
+
+block_info#9bc7a987 version:uint32 
+  not_master:(## 1) 
+  after_merge:(## 1) before_split:(## 1) 
+  after_split:(## 1) 
+  want_split:Bool want_merge:Bool
+  key_block:Bool vert_seqno_incr:(## 1)
+  flags:(## 8) { flags <= 1 }
+  seq_no:# vert_seq_no:# { vert_seq_no >= vert_seqno_incr } 
+  { prev_seq_no:# } { ~prev_seq_no + 1 = seq_no } 
+  shard:ShardIdent gen_utime:uint32
+  start_lt:uint64 end_lt:uint64
+  gen_validator_list_hash_short:uint32
+  gen_catchain_seqno:uint32
+  min_ref_mc_seqno:uint32
+  prev_key_block_seqno:uint32
+  gen_software:flags.0?GlobalVersion
+  master_ref:not_master?^BlkMasterInfo 
+  prev_ref:^(BlkPrevInfo after_merge)
+  prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
+  = BlockInfo;
+
+// issues 001
+dns_adnl_address#ad01 adnl_addr:bits256 flags:(## 8) { flags <= 1 }
+  proto_list:flags.0?ProtoList = DNSRecord;
+
+dns_smc_address#9fd3 smc_addr:MsgAddressInt flags:(## 8) { flags <= 1 }
+  cap_list:flags.0?SmcCapList = DNSRecord;
+
+masterchain_state_extra#cc26
+  shard_hashes:ShardHashes
+  config:ConfigParams
+  ^[ flags:(## 16) { flags <= 1 }
+     validator_info:ValidatorInfo
+     prev_blocks:OldMcBlocksInfo
+     after_key_block:Bool
+     last_key_block:(Maybe ExtBlkRef)
+     block_create_stats:(flags.0)?BlockCreateStats ]
+  global_balance:CurrencyCollection
+  = McStateExtra;
+
+// issues 002
+header_proof$_ (MERKLE_PROOF FFBlock) = BlockHeader;
+
+transactions$_ (ROOT_LIST Transaction) = TransactionList;
+
+// issues 003
+block#11ef55aa global_id:int32
+  info:^BlockInfo value_flow:^ValueFlow
+  = FBlock;
+
+// issues 004
+block#11ef55aa global_id:int32
+  info:^BlockInfo = FFBlock;
+
+
+shard_state_proof$_ (MERKLE_PROOF ShardStateUnsplit) = ShardStateProof;
+shard_block_proof$_ (MERKLE_PROOF Block) = ShardBlockProof;
+state_proof$_ (ROOT_LIST ShardStateProof ShardBlockProof) = StateProof;
+
+// issues 005
+shard_state#9023afe2 global_id:int32
+  shard_id:ShardIdent 
+  seq_no:uint32 vert_seq_no:#
+  gen_utime:uint32 gen_lt:uint64
+  min_ref_mc_seqno:uint32
+  out_msg_queue_info:^Cell
+  before_split:(## 1)
+  accounts:^ShardAccounts
+  ^[ overload_history:uint64 underload_history:uint64
+  total_balance:CurrencyCollection
+  total_validator_fees:CurrencyCollection
+  libraries:(HashmapE 256 LibDescr)
+  master_ref:(Maybe BlkMasterInfo) ]
+  custom:(Maybe ^McStateExtra)
+  = ShardStateUnsplit;
+
+config_proof$_ (MERKLE_PROOF ShardStateUnsplit) = ConfigInfo;
+
+vm_stk_bits#0200 value:bits256 = VmStackValue;
+
