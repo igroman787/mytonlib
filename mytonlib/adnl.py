@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
-import os
+from os.path import isdir, dirname, join
 import time
 import json
 import base64
@@ -41,7 +41,7 @@ class AdnlUdpClient():
 	
 	def load_tl_schemes(self):
 		dir = "/usr/src/ton/tl/generate/scheme/"
-		if os.path.isdir(dir):
+		if isdir(dir):
 			self.tl_schemes.load_schemes(dir)
 		else:
 			raise Exception("Tl schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
@@ -49,7 +49,7 @@ class AdnlUdpClient():
 	
 	def load_tlb_schemes(self):
 		dir = "/usr/src/ton/crypto/block/"
-		if os.path.isdir(dir):
+		if isdir(dir):
 			self.tlb_schemes.load_schemes(dir)
 		else:
 			raise Exception("Tlb schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
@@ -281,7 +281,7 @@ class AdnlTcpClient:
 	
 	def load_tl_schemes(self):
 		dir = "/usr/src/ton/tl/generate/scheme/"
-		if os.path.isdir(dir):
+		if isdir(dir):
 			self.tl_schemes.load_schemes(dir)
 		else:
 			raise Exception("Tl schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
@@ -289,11 +289,12 @@ class AdnlTcpClient:
 	
 	def load_tlb_schemes(self):
 		dir = "/usr/src/ton/crypto/block/"
-		if os.path.isdir(dir):
+		if isdir(dir):
 			self.tlb_schemes.load_schemes(dir)
 		else:
 			raise Exception("Tlb schemes not found. Use command: `cd /usr/src && git clone https://github.com/ton-blockchain/ton`")
-		self.tlb_schemes.load_schemes("block.fixes.tlb")
+		my_dir = dirname(__file__)
+		self.tlb_schemes.load_schemes(join(my_dir, "block.fixes.tlb"))
 	#end define
 	
 	def add_log(self, text, type):

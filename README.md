@@ -46,4 +46,4 @@ lookup_block			# Looks up a block by workchain, shard and seqno/lt/time, and sho
 ```
 
 ## More examples
-https://github.com/igroman787/mytonlib/blob/master/tests.py
+https://github.com/igroman787/mytonlib/blob/master/mytonlib/tests.py
