@@ -3,6 +3,7 @@
 
 import json
 from .adnl import AdnlTcpClient, AdnlUdpClient
+from .mytypes import Cell, Slice
 
 
 
@@ -128,6 +129,31 @@ def tests2():
 	adnl = AdnlUdpClient()
 	adnl.connect(host, port, pubkey)
 #end defines
+
+def test_cell():
+	cell = Cell()
+	cell.data = bytes.fromhex("010203")
+	cell.bits_len = len(self.data) * 8
+	cell.to_dict()
+	print("cell:", cell)
+	print("cell_json:", json.dumps(cell, indent=4))
+	
+	slice = Slice(cell)
+	print("slice:", slice)
+	print("slice_json:", json.dumps(slice, indent=4))
+#end define
+
+def test_config():
+	host = "185.86.79.9"
+	port = 4701
+	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
+
+	adnl = AdnlTcpClient()
+	adnl.connect(host, port, pubkey)
+	
+	data = adnl.get_config_params(32)
+	print("get_config_params:", json.dumps(data, indent=4))
+#end define
 
 
 ###

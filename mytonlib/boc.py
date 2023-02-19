@@ -6,7 +6,7 @@ import json
 import fastcrc
 from io import BytesIO as ByteStream
 from bitstring import BitArray, BitStream # pip3 install bitstring
-from .mytypes import Cell, Slice, Dict, int_be, cell2dict
+from .mytypes import Cell, Slice, Dict, int_be
 
 def deserialize_boc(data):
 	#print(f"deserialize_boc data: {data.hex()}")
@@ -67,7 +67,7 @@ def deserialize_boc(data):
 		level_mask = flags >> 5
 		
 		if refs_num > 4:
-			raise Exception("DeserializeCells error: too many refs in cell")
+			raise Exception("deserialize_boc error: too many refs in cell")
 		#end if
 		
 		ln = data[offset+1]
@@ -76,7 +76,7 @@ def deserialize_boc(data):
 		
 		offset += 2
 		if len(data)-offset < sz:
-			raise Exception("DeserializeCells error: failed to parse cell payload, corrupted data")
+			raise Exception("deserialize_boc error: failed to parse cell payload, corrupted data")
 		#end if
 		
 		if with_hashes is True:
@@ -93,7 +93,7 @@ def deserialize_boc(data):
 		offset += sz
 		
 		if len(data)-offset < refs_num*ref_sz_bytes :
-			raise Exception("DeserializeCells error: failed to parse cell refs, corrupted data")
+			raise Exception("deserialize_boc error: failed to parse cell refs, corrupted data")
 		#end if
 		
 		refs_index = dict()
@@ -106,11 +106,11 @@ def deserialize_boc(data):
 		refs = dict()
 		for y, id in refs_index.items():
 			if i == id:
-				raise Exception("DeserializeCells error: recursive reference of cells")
+				raise Exception("deserialize_boc error: recursive reference of cells")
 			if id < i and index == None:
-				raise Exception("DeserializeCells error: reference to index which is behind parent cell")
+				raise Exception("deserialize_boc error: reference to index which is behind parent cell")
 			if id >= cells_num:
-				raise Exception("DeserializeCells error: invalid index, out of scope")
+				raise Exception("deserialize_boc error: invalid index, out of scope")
 			refs[y] = cells[id]
 			referred[id] = True
 		#end for
@@ -134,6 +134,7 @@ def deserialize_boc(data):
 		cells[i].level = level_mask
 		cells[i].data = payload
 		cells[i].refs = refs
+		cells[i].to_dict()
 	#end for
 	
 	roots = list()
@@ -143,7 +144,7 @@ def deserialize_boc(data):
 	#end for
 	
 	if len(roots) != roots_num:
-		raise Exception("DeserializeCells error: roots num not match actual num")
+		raise Exception("deserialize_boc error: roots num not match actual num")
 	#end if
     
 	if len(roots) == 1:

@@ -2,6 +2,7 @@
 # -*- coding: utf_8 -*-
 
 from os.path import isdir, dirname, join
+from os import listdir
 import time
 import json
 import base64
@@ -10,7 +11,8 @@ import x25519 # pip3 install x25519
 import hashlib
 import secrets
 import fastcrc # pip3 install fastcrc
-import urllib.request
+#import urllib.request
+import threading
 from io import BytesIO as ByteStream
 from bitstring import BitArray # pip3 install bitstring
 from nacl.signing import SigningKey, VerifyKey # pip3 install pynacl
@@ -21,7 +23,7 @@ from .tl import TlSchemes, Int, tl_len
 from .tlb import TlbSchemes
 from .boc import serialize_boc, deserialize_boc
 from .utils import parse_addr, hex2dec
-from .mytypes import cell2dict, Dict
+from .mytypes import Dict
 
 
 
@@ -34,7 +36,6 @@ class AdnlUdpClient():
 		self.channels = list()
 		self.tl_schemes = TlSchemes()
 		self.tlb_schemes = TlbSchemes()
-		self.tlb_schemes.to_json = True # return Cell data as hex
 		self.load_tl_schemes()
 		self.load_tlb_schemes()
 	#end define
@@ -273,8 +274,9 @@ class AdnlTcpClient:
 		self.tx_nonce = None
 		self.rx_cipher = None
 		self.tx_cipher = None
+		self.ping_thread = None
 		self.tl_schemes = TlSchemes()
-		self.tlb_schemes = TlbSchemes(to_json=True) # return Cell data as hex
+		self.tlb_schemes = TlbSchemes()
 		self.load_tl_schemes()
 		self.load_tlb_schemes()
 	#end define
@@ -328,8 +330,17 @@ class AdnlTcpClient:
 		self.sock.settimeout(3)
 		self.sock.connect((host, port))
 		self.sock.send(handshake)
-
+		
 		self.get_datagram()
+		
+		# Start ping thread
+		threading.Thread(target=self.ping_thr, daemon=True).start()
+	#end define
+	
+	def ping_thr(self):
+		while True:
+			time.sleep(5)
+			self.ping()
 	#end define
 
 	def create_handshake(self, pubkey_b64):
@@ -468,7 +479,7 @@ class AdnlTcpClient:
 		data = read_scheme.deserialize(byte_stream)
 		if data.random_id != Int(random_id):
 			raise Exception("Adnl ping error: random_id does not match")
-		self.add_log("ping - ok", "debug")
+		return True
 	#end define
 	
 	def query(self, data):
@@ -493,18 +504,6 @@ class AdnlTcpClient:
 		return data.answer
 	#end define
 	
-	def try_query(self, send_data):
-		err = None
-		for i in range(0, 3):
-			try:
-				read_data = self.query(send_data)
-				return read_data
-			except Exception as ex:
-				err = ex
-			time.sleep(0.1)
-		raise Exception(f"try_query error: number of attempts exhausted: {err}")
-	#end define
-	
 	def lite_server_query(self, data):
 		# send
 		send_scheme = self.tl_schemes.get_scheme_by_name("liteServer.query")
@@ -514,7 +513,6 @@ class AdnlTcpClient:
 		
 		# get
 		read_data = self.query(send_data)
-		#read_data = self.try_query(send_data)
 		return read_data
 	#end define
 	
@@ -561,7 +559,7 @@ class AdnlTcpClient:
 		block_data = self.lite_server("getBlock", id=block_id_ext)
 		#print(f"get_block block_data: {block_data.data.hex()}")
 		data_cell = deserialize_boc(block_data.data)
-		#print(f"get_block data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		#print(f"get_block data_cell: {json.dumps(data_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="FBlock")
 		return data
 	#end define
@@ -595,7 +593,7 @@ class AdnlTcpClient:
 		mode = self.set_flags("mode.null")
 		block_header_data = self.lite_server("getBlockHeader", id=block_id_ext, mode=mode)
 		data_cell = deserialize_boc(block_header_data.header_proof)
-		#print(f"get_block_header data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		#print(f"get_block_header data_cell: {json.dumps(data_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="BlockHeader")
 		return data.virtual_root
 	#end define
@@ -636,7 +634,7 @@ class AdnlTcpClient:
 		# data.proof # TODO
 		# data.shard_proof # TODO
 		data_cell = deserialize_boc(data.result)
-		#print(f"run_smc_method data_cell: {json.dumps(cell2dict(data_cell, True), indent=4)}")
+		#print(f"run_smc_method data_cell: {json.dumps(data_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="VmStack")
 		if "value" in data.stack.tos:
 			return data.stack.tos.value
@@ -710,9 +708,18 @@ class AdnlTcpClient:
 		# config_params_data.state_proof # TODO
 		#state_proof_cell = deserialize_boc(config_params_data.state_proof)
 		config_proof_cell = deserialize_boc(config_params_data.config_proof)
-		#print(f"get_config_params config_proof_cell: {json.dumps(cell2dict(config_proof_cell, True), indent=4)}")
+		#print(f"get_config_params config_proof_cell: {json.dumps(config_proof_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(config_proof_cell, expected="ConfigInfo")
-		return data.virtual_root.custom.config.config
+		print(f"data: {json.dumps(data, indent=4)}")
+		
+		result = dict()
+		for param in param_list:
+			config_cell = data.virtual_root.custom.config.config.get(param)
+			result[param] = self.tlb_schemes.deserialize(config_cell, expected=f"ConfigParam {param}")
+			print(f"config_cell: {json.dumps(config_cell, indent=4)}")
+		if len(result) == 1:
+			param, result = result.popitem()
+		return result
 	#end define
 	
 	def get_one_transaction(self, block_id_ext, account_id, trans_lt):

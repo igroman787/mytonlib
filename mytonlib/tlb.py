@@ -5,17 +5,15 @@ import os
 import math
 import json
 from bitstring import BitStream, BitArray # pip3 install bitstring
-from .mytypes import Cell, Slice, Dict, cell2dict, bits2hex
+from .mytypes import Cell, Slice, Dict, bits2hex
 
 
 class TlbSchemes:
-	def __init__(self, to_json=False, as_line=False):
+	def __init__(self):
 		self.schemes = list()
 		self.buff_result = dict()
 		self.buff_subvars = dict()
 		self.using_scheme = None
-		self.to_json = to_json # if True - return Cells data as hex.
-		self.as_line = as_line # if True - return Cells data in one line.
 	#end define
 	
 	def load_schemes(self, filepath):
@@ -23,6 +21,8 @@ class TlbSchemes:
 			self.load_schemes_from_file(filepath)
 		elif os.path.isdir(filepath):
 			self.load_schemes_from_dir(filepath)
+		else:
+			raise Exception(f"load_schemes error: `{filepath}` not found")
 	#end define
 	
 	def load_schemes_from_file(self, filepath):
@@ -66,13 +66,20 @@ class TlbSchemes:
 				self.load_schemes_from_file(filepath)
 	#end define
 	
-	def get_schemes_by_class_name(self, name):
+	def get_schemes_by_class_name(self, class_name):
+		class_vars = split_string(class_name)
+		class_name = class_vars.pop(0)
 		result = list()
 		for scheme in self.schemes:
-			if scheme.class_name == name:
-				result.append(scheme)
+			if scheme.class_name == class_name:
+				if len(class_vars) > 0 and scheme.class_vars == class_vars:
+					result.append(scheme)
+				elif len(class_vars) == 0:
+					result.append(scheme)
+			#if scheme.class_name == class_name and scheme.class_vars == class_vars:
+			#	result.append(scheme)
 		if len(result) == 0:
-			raise Exception(f"get_schemes_by_class_name error: TLB scheme '{name}' not found")
+			raise Exception(f"get_schemes_by_class_name error: TLB scheme '{class_name}' not found")
 		return result
 	#end define
 	
@@ -95,8 +102,10 @@ class TlbSchemes:
 			slice = var
 		elif type(var) == Cell:
 			slice = Slice(var)
+		elif var == None:
+			return
 		else:
-			raise Exception("Tlb deserialize error: Input parameter type must be Slice")
+			raise Exception(f"Tlb deserialize error: Input parameter type must be Cell or Slice. Find {type(var)}")
 		#end if
 		
 		scheme = self.get_scheme_using_prefix(slice, expected)
@@ -112,11 +121,14 @@ class TlbSchemes:
 	
 	def save_class_vars(self, scheme, old_subvars):
 		#print(f"save_class_vars: class_vars={scheme.class_vars}, old_subvars={old_subvars}")
+		if old_subvars == None:
+			old_subvars = list()
 		self.using_scheme = scheme
-		if scheme.class_vars == None:
-			return
+		#if scheme.class_vars == None:
+		#	return
 		for item in scheme.class_vars:
-			self.buff_subvars[item] = old_subvars.pop(0)
+			if item.isdigit() == False:
+				self.buff_subvars[item] = old_subvars.pop(0)
 	#end define
 	
 	def deser_vars(self, slice, vars):
@@ -187,7 +199,7 @@ class TlbSchemes:
 		elif var_type.startswith('^'):
 			var_value = self.deser_ref(slice, var_type)
 		elif var_type in ["Any", "Cell"]:
-			var_value = self.deser_cell(slice)
+			var_value = slice.to_cell()
 		elif var_type in self.buff_subvars:
 			x_type = self.buff_subvars.get(var_type)
 			var_value = self.deser_types(slice, x_type)
@@ -495,7 +507,7 @@ class TlbSchemes:
 			return self.deser_special_cell(slice, var_type)
 		var_type = var_type[1:]
 		new_cell = slice.read_ref()
-		#print(f"deser_ref new_cell: {json.dumps(cell2dict(new_cell, True), indent=4)}")
+		#print(f"deser_ref new_cell: {json.dumps(new_cell, indent=4)}")
 		new_slice = Slice(new_cell)
 		if var_type.startswith('['):
 			start = var_type.find('[') + 1
@@ -508,17 +520,7 @@ class TlbSchemes:
 			var_value = self.deser_types(new_slice, var_type)
 		return var_value
 	#end define
-	
-	def deser_cell(self, slice):
-		if self.as_line == True:
-			result = self.deser_cell_as_line(slice)
-		elif self.to_json == True:
-			result = self.deser_cell_as_dict(slice)
-		else:
-			result = slice
-		return result
-		#end define
-	
+
 	def deser_cell_as_dict(self, slice):
 		bit_stream = slice.bit_stream
 		data_len = bit_stream.len - bit_stream.pos
@@ -713,7 +715,7 @@ class TlbScheme:
 	def __init__(self, text):
 		self.name = None
 		self.class_name = None
-		self.class_vars = None
+		self.class_vars = list()
 		self.vars = None
 		self.prefix_bit = None
 		self.is_link = False
@@ -759,11 +761,9 @@ class TlbScheme:
 		class_text = text[sep_pos+1:].strip()
 		vars_text = text[:sep_pos].strip()
 		
-		class_buff = split_string(class_text)
-		self.class_name = class_buff.pop(0)
-		if len(class_buff) > 0:
-			self.class_vars = class_buff
-		#end if
+		self.class_vars = split_string(class_text)
+		self.class_name = self.class_vars.pop(0)
+		#print(f"class_name: {self.class_name}, class_vars: {self.class_vars}")
 		
 		vars_buff = split_string(vars_text)
 		name_text = vars_buff.pop(0)

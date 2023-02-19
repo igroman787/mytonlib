@@ -20,14 +20,42 @@ def uint_le(data):
 	return int.from_bytes(data, byteorder="little", signed=False)
 #end define
 
-class Cell:
+class Dict(dict):
+	def __init__(self, **kwargs):
+		for key, value in kwargs.items():
+			self[key] = value
+		self.to_class()
+	#end define
+	
+	def to_class(self):
+		for key, value in self.items():
+			setattr(self, key, value)
+		#end for
+	#end define
+	
+	def to_dict(self):
+		self["@name"] = self.__class__.__name__
+		for key, value in self.__dict__.items():
+			self[key] = self._json_value(value)
+		#end for
+	#end define
+	
+	def _json_value(self, value):
+		if type(value) == bytes:
+			value = value.hex()
+		elif type(value) == BitStream:
+			value = value.hex
+		return value
+	#end define
+#end class
+
+class Cell(Dict):
 	def __init__(self):
 		self.special = False
 		self.bits_len = 0
 		self.level = 0
 		self.data = bytes()
 		self.refs = list()
-		self.index = None
 	#end define
 	
 	def __eq__(self, cell):
@@ -36,12 +64,12 @@ class Cell:
 	
 	def __str__(self):
 		data_hex = None
-		special_text = None
+		special_text = ""
 		if self.data is not None:
 			data_hex = self.data.hex()
 		if self.special == True:
-			special_text = "Special"
-		result = f"<{special_text} Cell {self.bits_len}:{data_hex}={len(self.refs)}>"
+			special_text = "Special "
+		result = f"<{special_text}Cell {self.bits_len}:{data_hex}={len(self.refs)}>"
 		return result
 	#end define
 	
@@ -70,6 +98,7 @@ class Slice(Cell):
 		self.bit_stream = BitStream(cell.data)
 		self.refs = cell.refs
 		self.refs_pos = 0
+		self.to_dict()
 	#end define
 	
 	def __str__(self):
@@ -113,33 +142,18 @@ class Slice(Cell):
 		result = self.show_bits(show_len*8)
 		return result
 	#end define
+	
+	def to_cell(self):
+		cell = Cell()
+		cell.special = self.special
+		cell.bits_len = self.bits_len
+		cell.level = self.level
+		cell.data = self.bit_stream.bytes
+		cell.refs = self.refs
+		cell.to_dict()
+		return cell
+	#end define
 #end class
-
-def cells2dict(cells, to_json=False):
-	result = list()
-	for cell in cells:
-		buff = cell2dict(cell, to_json=to_json)
-		result.append(buff)
-	return result
-#end define
-
-def cell2dict(cell, to_json=False):
-	if type(cell) == list:
-		return cells2dict(cell, to_json=to_json)
-	data = cell.data
-	if to_json is True:
-		data = data.hex()
-	result = Dict()
-	result["@name"] = "Cell"
-	result["special"] = cell.special
-	result["bits_len"] = cell.bits_len
-	result["level"] = cell.level
-	result["data"] = data
-	#result["bin"] = BitStream(cell.data).bin
-	result["refs"] = cells2dict(cell.refs, to_json=to_json)
-	result.to_class()
-	return result
-#end define
 
 def bits2hex(bit_stream):
 	data = ""
@@ -151,22 +165,3 @@ def bits2hex(bit_stream):
 		data += '_'
 	return data
 #end define
-
-class Dict(dict):
-	def __init__(self, **kwargs):
-		for key, value in kwargs.items():
-			self[key] = value
-		self.to_class()
-	#end define
-	
-	def to_class(self):
-		for key, value in self.items():
-			setattr(self, key, value)
-		#end for
-	#end define
-	
-	def to_dict(self):
-		for key, value in self.items():
-			self[key] = getattr(self, key)
-		#end for
-#end class
