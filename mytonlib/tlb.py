@@ -365,7 +365,7 @@ class TlbSchemes:
 			type_bit = bit_stream.read(1).bin
 			l = self.get_receptacle(m)
 			n = bit_stream.read(l).uint
-			s2 = type_bit * n
+			s2 = s + type_bit * n
 		#print(f"deser_hm_label: m:{m}, n:{n}, s:`{s}` -> s2:`{s2}`")
 		if n > m:
 			raise Exception("HmLabel error: `n` must be <= `m`")
@@ -391,7 +391,7 @@ class TlbSchemes:
 			buff = BitStream(bin=s)
 			var_key = buff.uint
 			result[var_key] = var_value
-			#print(f"deser_hashmap_node {var_key} -> {var_value}")
+			#print(f"deser_hashmap_node b[{s}] = h[{bits2hex(buff)}] = {var_key}") # -> {var_value}
 			return
 		#end if
 		

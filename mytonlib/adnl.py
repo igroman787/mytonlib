@@ -710,13 +710,13 @@ class AdnlTcpClient:
 		config_proof_cell = deserialize_boc(config_params_data.config_proof)
 		#print(f"get_config_params config_proof_cell: {json.dumps(config_proof_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(config_proof_cell, expected="ConfigInfo")
-		print(f"data: {json.dumps(data, indent=4)}")
+		#print(f"data: {json.dumps(data, indent=4)}")
 		
 		result = dict()
 		for param in param_list:
 			config_cell = data.virtual_root.custom.config.config.get(param)
 			result[param] = self.tlb_schemes.deserialize(config_cell, expected=f"ConfigParam {param}")
-			print(f"config_cell: {json.dumps(config_cell, indent=4)}")
+			#print(f"config_cell: {json.dumps(config_cell, indent=4)}")
 		if len(result) == 1:
 			param, result = result.popitem()
 		return result

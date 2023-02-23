@@ -143,7 +143,7 @@ def test_cell():
 	print("slice_json:", json.dumps(slice, indent=4))
 #end define
 
-def test_config():
+def test_config(papam=32):
 	host = "185.86.79.9"
 	port = 4701
 	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
@@ -151,9 +151,10 @@ def test_config():
 	adnl = AdnlTcpClient()
 	adnl.connect(host, port, pubkey)
 	
-	data = adnl.get_config_params(32)
+	data = adnl.get_config_params(papam)
 	print("get_config_params:", json.dumps(data, indent=4))
 #end define
+
 
 
 ###

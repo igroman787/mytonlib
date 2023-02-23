@@ -37,6 +37,8 @@ class Dict(dict):
 		self["@name"] = self.__class__.__name__
 		for key, value in self.__dict__.items():
 			self[key] = self._json_value(value)
+			#if type(value) == bytes:
+			#	self["bin"] = BitStream(value).bin
 		#end for
 	#end define
 	
