@@ -29,6 +29,10 @@ class TlbSchemes:
 		file = open(filepath, "rt")
 		text = file.read()
 		file.close()
+		self.load_schemes_from_text(text)
+	#end define
+	
+	def load_schemes_from_text(self, text):
 		lines = text.split('\n')
 		is_comment = False
 		buff = ""
@@ -76,25 +80,24 @@ class TlbSchemes:
 					result.append(scheme)
 				elif len(class_vars) == 0:
 					result.append(scheme)
-			#if scheme.class_name == class_name and scheme.class_vars == class_vars:
-			#	result.append(scheme)
 		if len(result) == 0:
 			raise Exception(f"get_schemes_by_class_name error: TLB scheme '{class_name}' not found")
 		return result
 	#end define
 	
 	def get_scheme_using_prefix(self, slice, expected):
-		bit_stream = slice.bit_stream
+		#bit_stream = slice.bit_stream
 		schemes = self.get_schemes_by_class_name(expected)
 		for scheme in schemes.copy():
 			#print(f"get_scheme_using_prefix scheme: {scheme}")
 			bit_len = scheme.get_prefix_bit_len()
-			prefix_bit = bit_stream.bin[bit_stream.pos:bit_stream.pos+bit_len]
+			#prefix_bit = bit_stream.bin[bit_stream.pos:bit_stream.pos+bit_len]
+			prefix_bit = slice.show_bits(bit_len)
 			if scheme.prefix_bit == prefix_bit or bit_len == 0:
-				bit_stream.read(bit_len)
+				slice.read(bit_len)
 				return scheme
 			#end if
-		raise Exception(f"get_scheme_using_prefix error: TLB scheme '{expected}' with prefix '{prefix_bit}' not found")
+		raise Exception(f"get_scheme_using_prefix error: TLB scheme '{expected}' with prefix '{prefix_bit}' not found. Expected prefix_bit={scheme.prefix_bit}")
 	#end define
 	
 	def deserialize(self, var, expected, old_subvars=None):
@@ -124,8 +127,6 @@ class TlbSchemes:
 		if old_subvars == None:
 			old_subvars = list()
 		self.using_scheme = scheme
-		#if scheme.class_vars == None:
-		#	return
 		for item in scheme.class_vars:
 			if item.isdigit() == False:
 				self.buff_subvars[item] = old_subvars.pop(0)
@@ -133,7 +134,6 @@ class TlbSchemes:
 	
 	def deser_vars(self, slice, vars):
 		result = Dict()
-		#self.buff_result = result
 		for var_name, var_type in vars.items():
 			var_value = self.deser_types(slice, var_type)
 			if var_name == "_":
@@ -147,39 +147,38 @@ class TlbSchemes:
 	
 	def deser_types(self, slice, var_type, subvars=None):
 		#print(f"deser_types: {var_type}, {slice}, subvars={subvars}")
-		bit_stream = slice.bit_stream
 		if var_type.startswith("int"):
-			var_value = self.deser_var_int(bit_stream, var_type)
+			var_value = self.deser_var_int(slice, var_type)
 		elif var_type.startswith("uint"):
-			var_value = self.deser_var_uint(bit_stream, var_type)
+			var_value = self.deser_var_uint(slice, var_type)
 		elif var_type == "bits256":
-			buff = bit_stream.read(256)
+			buff = slice.read(256)
 			var_value = buff.hex
 		elif var_type.startswith('('):
 			var_value = self.deser_step2(slice, var_type)
 		elif '?' in var_type:
 			var_value = self.deser_step3(slice, var_type)
 		elif var_type == "#":
-			buff = bit_stream.read(32)
+			buff = slice.read(32)
 			var_value = buff.uint
 		elif var_type == "##":
-			l = self.get_subvar(subvars[0])
-			buff = bit_stream.read(l)
+			ln = self.get_subvar(subvars[0])
+			buff = slice.read(ln)
 			var_value = buff.uint
 		elif var_type == "#<=":
-			l = self.get_receptacle(subvars[0])
-			buff = bit_stream.read(l)
+			ln = self.get_receptacle(subvars[0])
+			buff = slice.read(ln)
 			var_value = buff.uint
 		elif var_type == "bits":
-			l = self.get_subvar(subvars[0])
-			buff = bit_stream.read(l)
+			ln = self.get_subvar(subvars[0])
+			buff = slice.read(ln)
 			var_value = buff.hex
 		elif var_type == "Bool":
 			var_value = self.deser_bool(slice)
 		elif var_type == "Maybe":
 			var_value = self.deser_maybe(slice, subvars[0])
 		elif var_type == "VarUInteger":
-			var_value = self.deser_var_uinteger(bit_stream, subvars[0])
+			var_value = self.deser_var_uinteger(slice, subvars[0])
 		elif var_type == "Either":
 			var_value = self.deser_either(slice, subvars[0], subvars[1])
 		elif var_type == "BinTree":
@@ -192,8 +191,13 @@ class TlbSchemes:
 		elif var_type == "HashmapAugE":
 			var_value = self.deser_hashmap_aug_e(slice, subvars[0], subvars[1], subvars[2])
 		elif var_type == "VmStackList":
+			var_value = list()
 			depth = self.get_subvar("depth")
-			var_value = self.deser_vm_stack_list(slice, depth)
+			self.deser_vm_stack_list(var_value, slice, depth)
+		elif var_type == "VmTuple":
+			var_value = list()
+			ln = self.get_subvar("len")
+			self.deser_vm_tuple(var_value, slice, ln)
 		elif slice.special == True:
 			var_value = self.deser_special_cell(slice, var_type, subvars)
 		elif var_type.startswith('^'):
@@ -208,15 +212,15 @@ class TlbSchemes:
 		return var_value
 	#end define
 	
-	def deser_var_int(self, bit_stream, var_type):
+	def deser_var_int(self, slice, var_type):
 		int_len = int(var_type[3:])
-		buff = bit_stream.read(int_len)
+		buff = slice.read(int_len)
 		return buff.int
 	#end define
 	
-	def deser_var_uint(self, bit_stream, var_type):
+	def deser_var_uint(self, slice, var_type):
 		int_len = int(var_type[4:])
-		buff = bit_stream.read(int_len)
+		buff = slice.read(int_len)
 		return buff.uint
 	#end define
 	
@@ -259,22 +263,20 @@ class TlbSchemes:
 		return l
 	#end define
 	
-	def deser_var_uinteger(self, bit_stream, subvar):
+	def deser_var_uinteger(self, slice, subvar):
 		l = self.get_subvar(subvar)
 		a = "{0:b}".format(l-1)
 		l = len(a)
-		buff = bit_stream.read(l)
+		buff = slice.read(l)
 		if buff.uint == 0:
 			return 0
 		b = buff.uint * 8
-		buff = bit_stream.read(b)
+		buff = slice.read(b)
 		return buff.uint
 	#end define
 	
 	def deser_maybe(self, slice, x_type):
-		#bit_stream = slice.bit_stream
-		#buff = bit_stream.read(1)
-		buff = slice.read_bits(1)
+		buff = slice.read(1)
 		if buff.bin == '0':
 			return
 		var_value = self.deser_types(slice, x_type)
@@ -282,16 +284,14 @@ class TlbSchemes:
 	#end define
 	
 	def deser_bool(self, slice):
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		if buff.bin == '1':
 			return True
 		return False
 	#end define
 	
 	def deser_either(self, slice, x_type, y_type):
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		if buff.bin == '0':
 			var_value = self.deser_types(slice, x_type)
 		else:
@@ -300,8 +300,7 @@ class TlbSchemes:
 	#end define
 	
 	def deser_bin_tree(self, slice, x_type):
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		if buff.bin == '0':
 			result = self.deser_types(slice, x_type)
 		elif buff.bin == '1':
@@ -320,8 +319,7 @@ class TlbSchemes:
 		n = int(n)
 		result = dict()
 		#print(f"deser_hashmap_e: {n} {x_type}")
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		#print(f"deser_hashmap_e buff: {buff.bin}")
 		if buff.bin == '0':
 			# hme_empty
@@ -347,24 +345,23 @@ class TlbSchemes:
 	#end define
 	
 	def deser_hm_label(self, slice, m, s):
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		if buff.bin == '0':
 			# hml_short
-			n = self.deser_unary(bit_stream)
-			s2 = s + bit_stream.read(n).bin
+			n = self.deser_unary(slice)
+			s2 = s + slice.read(n).bin
 		else:
-			buff += bit_stream.read(1)
+			buff += slice.read(1)
 		if buff.bin == '10':
 			# hml_long
 			l = self.get_receptacle(m)
-			n = bit_stream.read(l).uint
-			s2 = s + bit_stream.read(n).bin
+			n = slice.read(l).uint
+			s2 = s + slice.read(n).bin
 		elif buff.bin == '11':
 			# hml_same
-			type_bit = bit_stream.read(1).bin
+			type_bit = slice.read(1).bin
 			l = self.get_receptacle(m)
-			n = bit_stream.read(l).uint
+			n = slice.read(l).uint
 			s2 = s + type_bit * n
 		#print(f"deser_hm_label: m:{m}, n:{n}, s:`{s}` -> s2:`{s2}`")
 		if n > m:
@@ -372,12 +369,12 @@ class TlbSchemes:
 		return n, s2
 	#end define
 	
-	def deser_unary(self, bit_stream):
+	def deser_unary(self, slice):
 		n = 0
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		while buff.bin == '1':
 			n += 1
-			buff = bit_stream.read(1)
+			buff = slice.read(1)
 		return n
 	#end define
 	
@@ -418,8 +415,7 @@ class TlbSchemes:
 		s = ""
 		n = int(n)
 		result = dict()
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(1)
+		buff = slice.read(1)
 		#print(f"deser_hashmap_aug_e buff: {buff.bin}")
 		if buff.bin == '0':
 			# ahme_empty
@@ -479,27 +475,105 @@ class TlbSchemes:
 		var_extra = self.deser_types(slice, y_type)
 	#end define
 	
-	def deser_vm_stack(self, slice):
-		bit_stream = slice.bit_stream
-		buff = bit_stream.read(24)
-		depth = buff.uint
-		stack = self.deser_vm_stack_list(slice, depth)
-		return stack
-	#end define
-	
-	def deser_vm_stack_list(self, slice, depth):
+	def deser_vm_stack_list(self, stack, slice, depth):
 		if slice.special == True:
-			return self.deser_special_cell(slice)
+			return
 		if depth == 0:
 			return
+		#end if
+		
 		#print(f"deser_vm_stack_list: depth={depth}")
 		new_cell = slice.read_ref()
 		new_slice = Slice(new_cell)
-		stack = Dict()
-		stack["rest"] = self.deser_vm_stack_list(new_slice, depth-1)
-		stack["tos"] = self.deser_types(slice, "VmStackValue")
-		stack.to_class()
-		return stack
+		self.deser_vm_stack_list(stack, new_slice, depth-1)
+		#var_value = self.deser_types(slice, "VmStackValue")
+		var_value = self.deser_vm_stack_value(stack, slice)
+		stack.append(var_value)
+	#end define
+	
+	def deser_vm_tuple(self, stack, slice, ln):
+		if slice.special == True:
+			return
+		if ln == 0:
+			return
+		#end if
+		
+		#print(f"deser_vm_tuple: ln={ln}, slice={slice}")
+		self.deser_vm_tuple_ref(stack, slice, ln-1)
+		
+		new_cell = slice.read_ref()
+		new_slice = Slice(new_cell)
+		#var_value = self.deser_types(new_slice, "VmStackValue")
+		var_value = self.deser_vm_stack_value(stack, new_slice)
+		stack.append(var_value)
+	#end define
+	
+	def deser_vm_tuple_ref(self, stack, slice, ln):
+		if slice.special == True:
+			return
+		if ln == 0:
+			return
+		elif ln == 1:
+			#print(f"deser_vm_tuple_ref: ln={ln}, slice={slice}")
+			new_cell = slice.read_ref()
+			new_slice = Slice(new_cell)
+			#var_value = self.deser_types(new_slice, "VmStackValue")
+			var_value = self.deser_vm_stack_value(stack, new_slice)
+			stack.append(var_value)
+			return
+		#end if
+		
+		#print(f"deser_vm_tuple_ref: ln={ln}, slice={slice}")
+		new_cell = slice.read_ref()
+		new_slice = Slice(new_cell)
+		self.deser_vm_tuple(stack, new_slice, ln)
+	#end define
+	
+	def deser_vm_stack_value(self, stack, slice):
+		if slice.compare_byte_prefix("00"):
+			# vm_stk_null
+			return
+		elif slice.compare_byte_prefix("01"):
+			# vm_stk_tinyint
+			return self.deser_var_int(slice, "int64")
+		elif slice.compare_byte_prefix("0200"):
+			# vm_stk_bits
+			buff = slice.read(256)
+			return buff.hex
+		elif slice.compare_byte_prefix("0201"):
+			# vm_stk_int
+			return self.deser_var_int(slice, "int257")
+		elif slice.compare_byte_prefix("02ff"):
+			# vm_stk_nan
+			return
+		elif slice.compare_byte_prefix("03"):
+			# vm_stk_cell
+			new_cell = slice.read_ref()
+			return new_cell
+		elif slice.compare_byte_prefix("04"):
+			# vm_stk_slice
+			new_cell = slice.read_ref()
+			new_slice = Slice(new_cell)
+			new_slice.bit_stream.pos = slice.read(10)
+			end_bits = slice.read(10)
+			ln = self.get_receptacle(4)
+			new_slice.refs_pos = slice.read(ln)
+			end_ref = slice.read(ln)
+			return new_slice
+		elif slice.compare_byte_prefix("05"):
+			# vm_stk_builder
+			new_cell = slice.read_ref()
+			return new_cell
+		elif slice.compare_byte_prefix("06"):
+			# vm_stk_cont
+			return self.deser_types(new_slice, "VmCont")
+		elif slice.compare_byte_prefix("07"):
+			# vm_stk_tuple
+			buff = slice.read(16)
+			ln = buff.uint
+			var_value = self.deser_vm_tuple(stack, slice, ln)
+			return var_value
+		raise Exception(f"deser_vm_stack_value error: Unknown vm type with prefix `{slice.show(16).hex}`")
 	#end define
 	
 	def deser_ref(self, slice, var_type):
@@ -519,46 +593,6 @@ class TlbSchemes:
 		else:
 			var_value = self.deser_types(new_slice, var_type)
 		return var_value
-	#end define
-
-	def deser_cell_as_dict(self, slice):
-		bit_stream = slice.bit_stream
-		data_len = bit_stream.len - bit_stream.pos
-		data = bit_stream.read(data_len)
-		if self.to_json == True:
-			data = bits2hex(data)
-		start = slice.refs_pos
-		end = len(slice.refs)
-		refs = list()
-		for i in range(start, end):
-			new_cell = slice.refs[i]
-			new_slice = Slice(new_cell)
-			buff = self.deser_cell_as_dict(new_slice)
-			refs.append(buff)
-		result = Dict()
-		result["@name"] = "Cell"
-		result["special"] = slice.special
-		result["bits_len"] = slice.bits_len
-		result["level"] = slice.level
-		result["data"] = data
-		result["refs"] = refs
-		result.to_class()
-		return result
-	#end define
-	
-	def deser_cell_as_line(self, slice):
-		bit_stream = slice.bit_stream
-		data_len = bit_stream.len - bit_stream.pos
-		data = bit_stream.read(data_len)
-		if self.to_json == True:
-			data = bits2hex(data)
-		start = slice.refs_pos
-		end = len(slice.refs)
-		for i in range(start, end):
-			new_cell = slice.refs[i]
-			new_slice = Slice(new_cell)
-			data += self.deser_cell_as_line(new_slice)
-		return data
 	#end define
 	
 	def deser_flags(self, slice, var_type):
@@ -610,24 +644,23 @@ class TlbSchemes:
 	#end define
 	
 	def deser_special_cell(self, slice, var_type, subvars=None):
-		prefix = slice.show_bytes(1)
 		#print(f"deser_special_cell: {var_type}, {slice}, {prefix.hex}")
-		if prefix.hex == '01':
+		if slice.compare_byte_prefix('01'):
 			# deserialize PRUNNED_BRANCH as nothing
 			prefix = slice.read_bytes(1)
 			unknown = slice.read_bytes(1)
-			virtual_hash = slice.read_bits(256).hex
-			depth = slice.read_bits(16).uint
+			virtual_hash = slice.read(256).hex
+			depth = slice.read(16).uint
 			var_value = None
-		elif prefix.hex == '02':
+		elif slice.compare_byte_prefix('02'):
 			# deserialize MerkleUpdate according to scheme
 			slice.special = False
 			var_value = self.deser_types(slice, var_type, subvars)
-		elif prefix.hex == '03':
+		elif slice.compare_byte_prefix('03'):
 			# deserialize MERKLE_PROOF according to scheme
 			slice.special = False
 			var_value = self.deser_types(slice, var_type, subvars)
-		elif prefix.hex == '04':
+		elif slice.compare_byte_prefix('04'):
 			# deserialize LIBRARY
 			#raise Exception("deserialize LIBRARY not implemented")
 			var_value = None
@@ -663,7 +696,7 @@ class TlbSchemes:
 			cell.data += self.ser_step2(cell, var_type, var_value)
 		elif var_type == "VmStack":
 			new_cell = self.ser_vmstack(var_value)
-			cell.copy(new_cell)
+			cell.copy_from(new_cell)
 		else:
 			cell.data += self.serialize(var_type, **var_value)
 	#end define

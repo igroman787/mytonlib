@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
+import sys
 import json
 from .adnl import AdnlTcpClient, AdnlUdpClient
 from .mytypes import Cell, Slice
@@ -34,12 +35,8 @@ def tests():
 	print("get_account_state:", json.dumps(data, indent=4))
 	
 	# runmethod - Runs GET method <method-id> of account <addr> with specified parameters
-	data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
-	print("run_smc_method_1:", json.dumps(data, indent=4))
 	data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "seqno")
-	print("run_smc_method_2:", json.dumps(data, indent=4))
-	data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "get_public_key")
-	print("run_smc_method_3:", json.dumps(data, indent=4))
+	print("run_smc_method:", json.dumps(data, indent=4))
 	
 	# dnsresolve - Resolves a domain starting from root dns smart contract
 	#*
@@ -67,7 +64,6 @@ def tests():
 	# getstate - Downloads state corresponding to specified block
 	#data = adnl.get_state()
 	#print("get_state:", json.dumps(data, indent=4))
-	#print("get_state:", data)
 	
 	# lasttrans - Shows or dumps specified transaction and several preceding ones
 	data = adnl.get_last_transactions("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", 1)
@@ -133,7 +129,7 @@ def tests2():
 def test_cell():
 	cell = Cell()
 	cell.data = bytes.fromhex("010203")
-	cell.bits_len = len(self.data) * 8
+	cell.bits_len = len(cell.data) * 8
 	cell.to_dict()
 	print("cell:", cell)
 	print("cell_json:", json.dumps(cell, indent=4))
@@ -141,6 +137,12 @@ def test_cell():
 	slice = Slice(cell)
 	print("slice:", slice)
 	print("slice_json:", json.dumps(slice, indent=4))
+	
+	r1 = slice.compare_byte_prefix("01")
+	r2 = slice.compare_byte_prefix("02")
+	print(f"is slice has prefix `01`: {r1}")
+	print(f"is slice has prefix `02`: {r2}")
+	print(f"slice: {slice}")
 #end define
 
 def test_config(papam=32):
@@ -153,6 +155,40 @@ def test_config(papam=32):
 	
 	data = adnl.get_config_params(papam)
 	print("get_config_params:", json.dumps(data, indent=4))
+#end define
+
+def test_run_smc_method():
+	host = "185.86.79.9"
+	port = 4701
+	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
+
+	adnl = AdnlTcpClient()
+	adnl.connect(host, port, pubkey)
+	
+	data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
+	print("run_smc_method:", data)
+
+	adnl.tlb_schemes.load_schemes_from_text("mycell$_ value:uint64 = MyCell;")
+	data = adnl.tlb_schemes.deserialize(data, expected="MyCell")
+	print("data.value:", data.value)
+#end define
+
+def test_run_smc_method2():
+	host = "185.86.79.9"
+	port = 4701
+	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
+
+	adnl = AdnlTcpClient()
+	adnl.connect(host, port, pubkey)
+	
+	sys.setrecursionlimit(2000)
+	mc_info = adnl.get_masterchain_info()
+	block_id_ext = adnl.lookup_block(workchain=mc_info.last.workchain, shard=mc_info.last.shard, utime=1677006000)
+	data = adnl.run_smc_method("Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn", "list_proposals", block_id_ext=block_id_ext)
+	print("mc_info:", json.dumps(mc_info, indent=4))
+	print("block_id_ext:", json.dumps(block_id_ext, indent=4))
+	#print("run_smc_method:", json.dumps(data, indent=4))
+	print("run_smc_method:", data)
 #end define
 
 

@@ -552,7 +552,7 @@ class AdnlTcpClient:
 		block#11ef55aa global_id:int32 info:^BlockInfo value_flow:^ValueFlow state_update:^(MERKLE_UPDATE ShardState) extra:^BlockExtra = Block;
 		"""
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -570,7 +570,7 @@ class AdnlTcpClient:
 		split_state#5f327da5 left:^ShardStateUnsplit right:^ShardStateUnsplit = ShardState;
 		"""
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -586,7 +586,7 @@ class AdnlTcpClient:
 		liteServer.blockHeader id:tonNode.blockIdExt mode:# header_proof:bytes = liteServer.BlockHeader;
 		"""
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -614,12 +614,11 @@ class AdnlTcpClient:
 	
 	def run_smc_method(self, input_addr, method_name, params=None, block_id_ext=None):
 		"""
-		TODO:	TLB	-> VmStack
 		liteServer.runSmcMethod mode:# id:tonNode.blockIdExt account:liteServer.accountId method_id:long params:bytes = liteServer.RunMethodResult;
 		liteServer.runMethodResult mode:# id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:mode.0?bytes proof:mode.0?bytes state_proof:mode.1?bytes init_c7:mode.3?bytes lib_extras:mode.4?bytes exit_code:int result:mode.2?bytes = liteServer.RunMethodResult;
 		"""
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -636,9 +635,13 @@ class AdnlTcpClient:
 		data_cell = deserialize_boc(data.result)
 		#print(f"run_smc_method data_cell: {json.dumps(data_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="VmStack")
-		if "value" in data.stack.tos:
-			return data.stack.tos.value
-		return data.stack.tos
+		#print(f"run_smc_method data: {json.dumps(data, indent=4)}")
+		result = data.stack
+		if len(result) == 1:
+			result = result.pop()
+		#if "value" in result:
+		#	return result.value
+		return result
 	#end define
 	
 	def get_account_state(self, input_addr, block_id_ext=None):
@@ -648,7 +651,7 @@ class AdnlTcpClient:
 		liteServer.accountState id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:bytes proof:bytes state:bytes = liteServer.AccountState;
 		"""
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -676,7 +679,7 @@ class AdnlTcpClient:
 		liteServer.allShardsInfo id:tonNode.blockIdExt proof:bytes data:bytes = liteServer.AllShardsInfo;
 		"""
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -699,7 +702,7 @@ class AdnlTcpClient:
 		elif type(params) is list:
 			param_list = params
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		
@@ -729,7 +732,7 @@ class AdnlTcpClient:
 		"""
 		
 		if block_id_ext is None:
-			data = self.lite_server("getMasterchainInfo")
+			data = self.get_masterchain_info()
 			block_id_ext = data.last
 		#end if
 		

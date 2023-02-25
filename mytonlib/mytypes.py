@@ -83,7 +83,7 @@ class Cell(Dict):
 		self.refs.append(cell)
 	#end define
 	
-	def copy(self, cell):
+	def copy_from(self, cell):
 		self.special = cell.special
 		self.bits_len = cell.bits_len
 		self.level = cell.level
@@ -110,7 +110,7 @@ class Slice(Cell):
 			data_hex = self.bit_stream.hex
 		if self.special == True:
 			special_text = "Special "
-		result = f"<{special_text}Slice {self.bits_len}:{self.bit_stream.pos}:{data_hex}={len(self.refs)}>"
+		result = f"<{special_text}Slice {self.bit_stream.pos}/{self.bits_len}:{data_hex}={len(self.refs)}>"
 		return result
 	#end define
 	
@@ -121,28 +121,66 @@ class Slice(Cell):
 	#end define
 	
 	def read_bits(self, read_len=None):
+		buff = self.read(read_len)
+		return buff.bin
+	#end define
+	
+	def read_bytes(self, read_len):
+		buff = self.read(read_len*8)
+		return buff.bytes
+	#end define
+	
+	def read(self, read_len):
 		bit_stream = self.bit_stream
+		available_len = bit_stream.len - bit_stream.pos
 		if read_len == None:
-			read_len = bit_stream.len - bit_stream.pos
+			read_len = available_len
 		result = bit_stream.read(read_len)
 		return result
 	#end define
 	
-	def read_bytes(self, read_len):
-		result = self.read_bits(read_len*8)
-		return result
+	def show_bits(self, show_len):
+		buff = self.show(show_len)
+		return buff.bin
 	#end define
 	
-	def show_bits(self, show_len):
+	def show_bytes(self, show_len):
+		buff = self.show(show_len*8)
+		return buff.bytes
+	#end define
+	
+	def show(self, show_len):
 		pos_old = self.bit_stream.pos
-		result = self.read_bits(show_len)
+		available_len = self.bit_stream.len - self.bit_stream.pos
+		if show_len == None:
+			show_len = available_len
+		elif show_len > available_len:
+			show_len = available_len
+		result = self.bit_stream.read(show_len)
 		self.bit_stream.pos = pos_old
 		return result
 	#end define
 	
-	def show_bytes(self, show_len):
-		result = self.show_bits(show_len*8)
-		return result
+	def compare_bit_prefix(self, prefix_bit, move_bit_pos=True):
+		bit_len = len(prefix_bit)
+		if self.show_bits(bit_len) == prefix_bit:
+			if move_bit_pos:
+				self.read_bits(bit_len)
+			return True
+		return False
+	#end define
+	
+	def compare_byte_prefix(self, prefix, move_bit_pos=True):
+		if type(prefix) == bytes:
+			prefix_byte = prefix
+		else:
+			prefix_byte = bytes.fromhex(prefix)
+		byte_len = len(prefix_byte)
+		if self.show_bytes(byte_len) == prefix_byte:
+			if move_bit_pos:
+				self.read_bytes(byte_len)
+			return True
+		return False
 	#end define
 	
 	def to_cell(self):

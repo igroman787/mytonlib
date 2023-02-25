@@ -1,5 +1,5 @@
 ## What is it?
-This is a native library for working with The Open Network.  without using libtonlibjson.
+This is a native library for working with The Open Network. Without using `libtonlibjson.so`
 
 ## Installation
 ```sh
@@ -43,6 +43,17 @@ get_last_transactions	# Shows or dumps specified transaction and several precedi
 get_block_transactions	# Lists block transactions, starting immediately after or before the specified one
 get_one_transaction		# Dumps one transaction of specified account
 lookup_block			# Looks up a block by workchain, shard and seqno/lt/time, and shows its header
+```
+
+## TLB unpacking 
+A feature of this library is the automatic unpacking of data according to the TLB scheme:
+```
+data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
+print(data) # or print(json.dumps(data, indent=4))
+
+adnl.tlb_schemes.load_schemes_from_text("mycell$_ value:uint64 = MyCell;")
+data = adnl.tlb_schemes.deserialize(data.cell, expected="MyCell")
+print(data.value)
 ```
 
 ## More examples
