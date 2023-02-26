@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
-from distutils.core import setup
+#from distutils.core import setup
+from setuptools import setup
 from os.path import dirname, join
 from os import listdir
 

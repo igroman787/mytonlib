@@ -47,7 +47,7 @@ lookup_block			# Looks up a block by workchain, shard and seqno/lt/time, and sho
 
 ## TLB unpacking 
 A feature of this library is the automatic unpacking of data according to the TLB scheme:
-```
+```python
 data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
 print(data) # or print(json.dumps(data, indent=4))
 
