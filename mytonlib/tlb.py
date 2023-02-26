@@ -86,18 +86,13 @@ class TlbSchemes:
 	#end define
 	
 	def get_scheme_using_prefix(self, slice, expected):
-		#bit_stream = slice.bit_stream
 		schemes = self.get_schemes_by_class_name(expected)
 		for scheme in schemes.copy():
 			#print(f"get_scheme_using_prefix scheme: {scheme}")
-			bit_len = scheme.get_prefix_bit_len()
-			#prefix_bit = bit_stream.bin[bit_stream.pos:bit_stream.pos+bit_len]
-			prefix_bit = slice.show_bits(bit_len)
-			if scheme.prefix_bit == prefix_bit or bit_len == 0:
-				slice.read(bit_len)
+			if slice.compare_bit_prefix(scheme.prefix_bit):
 				return scheme
 			#end if
-		raise Exception(f"get_scheme_using_prefix error: TLB scheme '{expected}' with prefix '{prefix_bit}' not found. Expected prefix_bit={scheme.prefix_bit}")
+		raise Exception(f"get_scheme_using_prefix error: TLB scheme '{expected}' not found. Scheme prefix_bit: `{scheme.prefix_bit}`. Slice: {slice}")
 	#end define
 	
 	def deserialize(self, var, expected, old_subvars=None):
@@ -195,9 +190,8 @@ class TlbSchemes:
 			depth = self.get_subvar("depth")
 			self.deser_vm_stack_list(var_value, slice, depth)
 		elif var_type == "VmTuple":
-			var_value = list()
 			ln = self.get_subvar("len")
-			self.deser_vm_tuple(var_value, slice, ln)
+			var_value = self.deser_vm_tuple(slice, ln)
 		elif slice.special == True:
 			var_value = self.deser_special_cell(slice, var_type, subvars)
 		elif var_type.startswith('^'):
@@ -487,25 +481,27 @@ class TlbSchemes:
 		new_slice = Slice(new_cell)
 		self.deser_vm_stack_list(stack, new_slice, depth-1)
 		#var_value = self.deser_types(slice, "VmStackValue")
-		var_value = self.deser_vm_stack_value(stack, slice)
-		stack.append(var_value)
+		#stack.append(var_value)
+		self.deser_vm_stack_value(stack, slice)
 	#end define
 	
-	def deser_vm_tuple(self, stack, slice, ln):
+	def deser_vm_tuple(self, slice, ln):
 		if slice.special == True:
 			return
 		if ln == 0:
 			return
 		#end if
 		
+		stack = list()
 		#print(f"deser_vm_tuple: ln={ln}, slice={slice}")
 		self.deser_vm_tuple_ref(stack, slice, ln-1)
 		
 		new_cell = slice.read_ref()
 		new_slice = Slice(new_cell)
 		#var_value = self.deser_types(new_slice, "VmStackValue")
-		var_value = self.deser_vm_stack_value(stack, new_slice)
-		stack.append(var_value)
+		#stack.append(var_value)
+		self.deser_vm_stack_value(stack, new_slice)
+		return stack
 	#end define
 	
 	def deser_vm_tuple_ref(self, stack, slice, ln):
@@ -518,38 +514,41 @@ class TlbSchemes:
 			new_cell = slice.read_ref()
 			new_slice = Slice(new_cell)
 			#var_value = self.deser_types(new_slice, "VmStackValue")
-			var_value = self.deser_vm_stack_value(stack, new_slice)
-			stack.append(var_value)
+			#stack.append(var_value)
+			self.deser_vm_stack_value(stack, new_slice)
 			return
 		#end if
 		
 		#print(f"deser_vm_tuple_ref: ln={ln}, slice={slice}")
 		new_cell = slice.read_ref()
 		new_slice = Slice(new_cell)
-		self.deser_vm_tuple(stack, new_slice, ln)
+		var_value = self.deser_vm_tuple(new_slice, ln)
+		stack.append(var_value)
 	#end define
 	
 	def deser_vm_stack_value(self, stack, slice):
 		if slice.compare_byte_prefix("00"):
 			# vm_stk_null
-			return
+			pass
 		elif slice.compare_byte_prefix("01"):
 			# vm_stk_tinyint
-			return self.deser_var_int(slice, "int64")
+			var_value = self.deser_var_int(slice, "int64")
+			stack.append(var_value)
 		elif slice.compare_byte_prefix("0200"):
 			# vm_stk_bits
 			buff = slice.read(256)
-			return buff.hex
+			stack.append(buff.hex)
 		elif slice.compare_byte_prefix("0201"):
 			# vm_stk_int
-			return self.deser_var_int(slice, "int257")
+			var_value = self.deser_var_int(slice, "int257")
+			stack.append(var_value)
 		elif slice.compare_byte_prefix("02ff"):
 			# vm_stk_nan
-			return
+			pass
 		elif slice.compare_byte_prefix("03"):
 			# vm_stk_cell
 			new_cell = slice.read_ref()
-			return new_cell
+			stack.append(new_cell)
 		elif slice.compare_byte_prefix("04"):
 			# vm_stk_slice
 			new_cell = slice.read_ref()
@@ -559,21 +558,23 @@ class TlbSchemes:
 			ln = self.get_receptacle(4)
 			new_slice.refs_pos = slice.read(ln)
 			end_ref = slice.read(ln)
-			return new_slice
+			stack.append(new_slice)
 		elif slice.compare_byte_prefix("05"):
 			# vm_stk_builder
 			new_cell = slice.read_ref()
-			return new_cell
+			stack.append(new_cell)
 		elif slice.compare_byte_prefix("06"):
 			# vm_stk_cont
-			return self.deser_types(new_slice, "VmCont")
+			var_value = self.deser_types(new_slice, "VmCont")
+			stack.append(var_value)
 		elif slice.compare_byte_prefix("07"):
 			# vm_stk_tuple
 			buff = slice.read(16)
 			ln = buff.uint
-			var_value = self.deser_vm_tuple(stack, slice, ln)
-			return var_value
-		raise Exception(f"deser_vm_stack_value error: Unknown vm type with prefix `{slice.show(16).hex}`")
+			var_value = self.deser_vm_tuple(slice, ln)
+			stack.append(var_value)
+		else:
+			raise Exception(f"deser_vm_stack_value error: Unknown vm type with prefix `{slice.show(16).hex}`")
 	#end define
 	
 	def deser_ref(self, slice, var_type):
@@ -647,22 +648,21 @@ class TlbSchemes:
 		#print(f"deser_special_cell: {var_type}, {slice}, {prefix.hex}")
 		if slice.compare_byte_prefix('01'):
 			# deserialize PRUNNED_BRANCH as nothing
-			prefix = slice.read_bytes(1)
 			unknown = slice.read_bytes(1)
 			virtual_hash = slice.read(256).hex
 			depth = slice.read(16).uint
 			var_value = None
-		elif slice.compare_byte_prefix('02'):
+		elif slice.compare_byte_prefix('02', move_bit_pos=False):
 			# deserialize MerkleUpdate according to scheme
 			slice.special = False
 			var_value = self.deser_types(slice, var_type, subvars)
-		elif slice.compare_byte_prefix('03'):
+		elif slice.compare_byte_prefix('03', move_bit_pos=False):
 			# deserialize MERKLE_PROOF according to scheme
 			slice.special = False
 			var_value = self.deser_types(slice, var_type, subvars)
 		elif slice.compare_byte_prefix('04'):
 			# deserialize LIBRARY
-			#raise Exception("deserialize LIBRARY not implemented")
+			print("deserialize LIBRARY not implemented")
 			var_value = None
 		else:
 			raise Exception(f"deserialize UNKNOWN with prefix `{prefix.hex}` not implemented")
@@ -771,13 +771,6 @@ class TlbScheme:
 			self.class_vars == scheme.class_vars)
 	#end define
 	
-	def get_prefix_bit_len(self):
-		prefix_bit_len = 0
-		if self.prefix_bit != None:
-			prefix_bit_len = len(self.prefix_bit)
-		return prefix_bit_len
-	#end define
-	
 	def parse(self, text):
 		end = ';'
 		if end in text:
@@ -839,9 +832,6 @@ class TlbScheme:
 			if item.startswith('^'):
 				var_name = "_"
 				var_type = item
-			#elif len(buff) == 1:
-			#	var_name = "_"
-			#	var_type = buff.pop()
 			else:
 				var_name = buff.pop(0)
 				var_type = buff.pop()

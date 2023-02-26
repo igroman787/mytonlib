@@ -8,14 +8,15 @@ from .mytypes import Cell, Slice
 
 
 
-def tests():
+host = "185.86.79.9"
+port = 4701
+pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
+	
+	
+def test_lite_client():
 	"""
 	Test commands from lite-client
 	"""
-	
-	host = "185.86.79.9"
-	port = 4701
-	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
 
 	adnl = AdnlTcpClient()
 	adnl.connect(host, port, pubkey)
@@ -117,7 +118,7 @@ def tests():
 	print("send_ext_msg:", json.dumps(data, indent=4))
 #end define
 
-def tests2():
+def test_udp():
 	host = "65.21.7.173"
 	port = 15813
 	pubkey = "fZnkoIAxrTd4xeBgVpZFRm5SvVvSx7eN3Vbe8c83YMk="
@@ -146,10 +147,6 @@ def test_cell():
 #end define
 
 def test_config(papam=32):
-	host = "185.86.79.9"
-	port = 4701
-	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
-
 	adnl = AdnlTcpClient()
 	adnl.connect(host, port, pubkey)
 	
@@ -158,10 +155,6 @@ def test_config(papam=32):
 #end define
 
 def test_run_smc_method():
-	host = "185.86.79.9"
-	port = 4701
-	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
-
 	adnl = AdnlTcpClient()
 	adnl.connect(host, port, pubkey)
 	
@@ -174,14 +167,9 @@ def test_run_smc_method():
 #end define
 
 def test_run_smc_method2():
-	host = "185.86.79.9"
-	port = 4701
-	pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
-
 	adnl = AdnlTcpClient()
 	adnl.connect(host, port, pubkey)
 	
-	sys.setrecursionlimit(2000)
 	mc_info = adnl.get_masterchain_info()
 	block_id_ext = adnl.lookup_block(workchain=mc_info.last.workchain, shard=mc_info.last.shard, utime=1677006000)
 	data = adnl.run_smc_method("Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn", "list_proposals", block_id_ext=block_id_ext)

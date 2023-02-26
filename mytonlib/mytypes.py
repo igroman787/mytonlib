@@ -162,8 +162,8 @@ class Slice(Cell):
 	#end define
 	
 	def compare_bit_prefix(self, prefix_bit, move_bit_pos=True):
-		bit_len = len(prefix_bit)
-		if self.show_bits(bit_len) == prefix_bit:
+		bit_len = self.get_prefix_bit_len(prefix_bit)
+		if self.show_bits(bit_len) == prefix_bit or bit_len == 0:
 			if move_bit_pos:
 				self.read_bits(bit_len)
 			return True
@@ -181,6 +181,13 @@ class Slice(Cell):
 				self.read_bytes(byte_len)
 			return True
 		return False
+	#end define
+	
+	def get_prefix_bit_len(self, prefix_bit):
+		prefix_bit_len = 0
+		if prefix_bit != None:
+			prefix_bit_len = len(prefix_bit)
+		return prefix_bit_len
 	#end define
 	
 	def to_cell(self):

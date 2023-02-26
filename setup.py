@@ -15,7 +15,7 @@ with open(join(my_dir, "README.md")) as file:
 #end with
 
 setup(name = "mytonlib",
-	version = "0.7.1",
+	version = "0.7.2",
 	description = "Native library for working with TON (The Open Network)",
 	author = "Igroman787",
 	url = "https://github.com/igroman787/mytonlib",
