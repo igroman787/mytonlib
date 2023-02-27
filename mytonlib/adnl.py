@@ -264,6 +264,7 @@ class AdnlUdpClient():
 
 class AdnlTcpClient:
 	def __init__(self):
+		self.queue = list()
 		self.local = None
 		self.sock = None
 		self.local_priv = None
@@ -274,7 +275,6 @@ class AdnlTcpClient:
 		self.tx_nonce = None
 		self.rx_cipher = None
 		self.tx_cipher = None
-		self.ping_thread = None
 		self.tl_schemes = TlSchemes()
 		self.tlb_schemes = TlbSchemes()
 		self.load_tl_schemes()
@@ -504,6 +504,32 @@ class AdnlTcpClient:
 		return data.answer
 	#end define
 	
+	def query_with_queue(self, send_data):
+		request_id = self.wait()
+		read_data = self.query(send_data)
+		self.free(request_id)
+		return read_data
+	#end define
+	
+	def wait(self):
+		request_id = secrets.token_bytes(4)
+		if request_id not in self.queue:
+			self.queue.append(request_id)
+		else:
+			print("Wow. Recreating the request id")
+			self.wait()
+		while self.queue.index(request_id) > 0:
+			time.sleep(0.01)
+		return request_id
+	#end define
+	
+	def free(self, request_id):
+		if request_id in self.queue:
+			self.queue.remove(request_id)
+		else:
+			print("Wow. You are faster than me")
+	#end define
+	
 	def lite_server_query(self, data):
 		# send
 		send_scheme = self.tl_schemes.get_scheme_by_name("liteServer.query")
@@ -512,7 +538,7 @@ class AdnlTcpClient:
 		send_data = send_scheme.id + data
 		
 		# get
-		read_data = self.query(send_data)
+		read_data = self.query_with_queue(send_data)
 		return read_data
 	#end define
 	
@@ -664,16 +690,16 @@ class AdnlTcpClient:
 		proof_cell = deserialize_boc(account_data.proof)
 		#shard_proof_cell = deserialize_boc(account_data.shard_proof)
 		account_state = self.tlb_schemes.deserialize(state_cell, expected="Account")
-		shard_proof_state = self.tlb_schemes.deserialize(proof_cell[0], expected="ShardStateProof")
-		#print(f"shard_proof_state: {json.dumps(shard_proof_state, indent=4)}")
-		account_descr = shard_proof_state.virtual_root.accounts.get(hex2dec(addr))
+		shard_state_proof = self.tlb_schemes.deserialize(proof_cell[0], expected="ShardStateProof")
+		#print(f"shard_state_proof: {json.dumps(shard_state_proof, indent=4)}")
+		account_descr = shard_state_proof.virtual_root.accounts.get(hex2dec(addr))
 		account_state["last_trans_lt"] = account_descr.last_trans_lt
 		account_state["last_trans_hash"] = account_descr.last_trans_hash
 		account_state.to_class()
 		return account_state
 	#end define
 	
-	def get_all_shards_info(self, block_id_ext=None):
+	def get_all_shards(self, block_id_ext=None):
 		"""
 		liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo;
 		liteServer.allShardsInfo id:tonNode.blockIdExt proof:bytes data:bytes = liteServer.AllShardsInfo;
@@ -687,8 +713,19 @@ class AdnlTcpClient:
 		# shards_data.proof # TODO
 		data_cell = deserialize_boc(shards_data.data)
 		data = self.tlb_schemes.deserialize(data_cell, expected="ShardHashes")
-		print(f"get_all_shards_info: shards_data.id={shards_data.id}")
-		return data
+		
+		shards = list()
+		for workchain, shards_list in data.items():
+			for shard_descr in shards_list:
+				shard = Dict()
+				shard["workchain"] = workchain
+				shard["shard"] = shard_descr.next_validator_shard
+				shard["seqno"] = shard_descr.seq_no
+				shard["root_hash"] = shard_descr.root_hash
+				shard["file_hash"] = shard_descr.file_hash
+				shard.to_class()
+				shards.append(shard)
+		return shards
 	#end define
 	
 	def get_config_params(self, params, block_id_ext=None):

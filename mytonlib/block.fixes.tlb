@@ -1,6 +1,6 @@
 !root_list$_ {X:Type} = ROOT_LIST X;
 
-
+// fix tl-b schema syntax error - space between type assignment
 block_info#9bc7a987 version:uint32 
   not_master:(## 1) 
   after_merge:(## 1) before_split:(## 1) 
@@ -22,10 +22,11 @@ block_info#9bc7a987 version:uint32
   prev_vert_ref:vert_seqno_incr?^(BlkPrevInfo 0)
   = BlockInfo;
 
-// issues 001
+// fix tl-b schema syntax error - space between type assignment
 dns_adnl_address#ad01 adnl_addr:bits256 flags:(## 8) { flags <= 1 }
   proto_list:flags.0?ProtoList = DNSRecord;
 
+// fix tl-b schema syntax error - space between type assignment
 dns_smc_address#9fd3 smc_addr:MsgAddressInt flags:(## 8) { flags <= 1 }
   cap_list:flags.0?SmcCapList = DNSRecord;
 
@@ -57,8 +58,8 @@ block#11ef55aa global_id:int32
 
 
 shard_state_proof$_ (MERKLE_PROOF ShardStateUnsplit) = ShardStateProof;
-shard_block_proof$_ (MERKLE_PROOF Block) = ShardBlockProof;
-state_proof$_ (ROOT_LIST ShardStateProof ShardBlockProof) = StateProof;
+shard_block_proof$_ (MERKLE_PROOF Block) = BlockStateProof;
+state_proof$_ (ROOT_LIST ShardStateProof BlockStateProof) = StateProof;
 
 // issues 005
 shard_state#9023afe2 global_id:int32
@@ -77,7 +78,33 @@ shard_state#9023afe2 global_id:int32
   custom:(Maybe ^McStateExtra)
   = ShardStateUnsplit;
 
+// Add a new type that is already in use
 config_proof$_ (MERKLE_PROOF ShardStateUnsplit) = ConfigInfo;
 
+// Add a new type that is already in use
 vm_stk_bits#0200 value:bits256 = VmStackValue;
 
+// change variable type next_validator_shard from uint64 to int64 (long)
+shard_descr#b seq_no:uint32 reg_mc_seqno:uint32
+  start_lt:uint64 end_lt:uint64
+  root_hash:bits256 file_hash:bits256 
+  before_split:Bool before_merge:Bool
+  want_split:Bool want_merge:Bool
+  nx_cc_updated:Bool flags:(## 3) { flags = 0 }
+  next_catchain_seqno:uint32 next_validator_shard:int64
+  min_ref_mc_seqno:uint32 gen_utime:uint32
+  split_merge_at:FutureSplitMerge
+  fees_collected:CurrencyCollection
+  funds_created:CurrencyCollection = ShardDescr;
+
+shard_descr_new#a seq_no:uint32 reg_mc_seqno:uint32
+  start_lt:uint64 end_lt:uint64
+  root_hash:bits256 file_hash:bits256 
+  before_split:Bool before_merge:Bool
+  want_split:Bool want_merge:Bool
+  nx_cc_updated:Bool flags:(## 3) { flags = 0 }
+  next_catchain_seqno:uint32 next_validator_shard:int64
+  min_ref_mc_seqno:uint32 gen_utime:uint32
+  split_merge_at:FutureSplitMerge
+  ^[ fees_collected:CurrencyCollection
+     funds_created:CurrencyCollection ] = ShardDescr;

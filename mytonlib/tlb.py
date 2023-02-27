@@ -293,18 +293,26 @@ class TlbSchemes:
 		return var_value
 	#end define
 	
-	def deser_bin_tree(self, slice, x_type):
+	def deser_bin_tree(self, slice, x_type, result=None):
+		if result == None:
+			result = list()
+		#end if
+		
 		buff = slice.read(1)
 		if buff.bin == '0':
-			result = self.deser_types(slice, x_type)
+			# leaf
+			var_value = self.deser_types(slice, x_type)
+			result.append(var_value)
 		elif buff.bin == '1':
-			result = dict()
+			# left
 			left_cell = slice.read_ref()
 			left_slice = Slice(left_cell)
-			result["left"] = self.deser_bin_tree(left_slice, x_type)
+			self.deser_bin_tree(left_slice, x_type, result)
+			
+			# rigth
 			right_cell = slice.read_ref()
 			right_slice = Slice(right_cell)
-			result["right"] = self.deser_bin_tree(right_slice, x_type)
+			self.deser_bin_tree(right_slice, x_type, result)
 		return result
 	#end define
 	
@@ -314,7 +322,6 @@ class TlbSchemes:
 		result = dict()
 		#print(f"deser_hashmap_e: {n} {x_type}")
 		buff = slice.read(1)
-		#print(f"deser_hashmap_e buff: {buff.bin}")
 		if buff.bin == '0':
 			# hme_empty
 			return
