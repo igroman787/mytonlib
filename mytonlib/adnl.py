@@ -340,7 +340,10 @@ class AdnlTcpClient:
 	def ping_thr(self):
 		while True:
 			time.sleep(5)
-			self.ping()
+			try:
+				self.ping()
+			except Exception as err:
+				self.add_log(f"ping_thr error: {err}")
 	#end define
 
 	def create_handshake(self, pubkey_b64):
@@ -465,6 +468,13 @@ class AdnlTcpClient:
 	#end define
 	
 	def ping(self):
+		request_id = self.wait()
+		result = self.ping_process()
+		self.free(request_id)
+		return result
+	#end define
+	
+	def ping_process(self):
 		# send
 		send_scheme = self.tl_schemes.get_scheme_by_name("tcp.ping")
 		random_id = secrets.token_bytes(8)
