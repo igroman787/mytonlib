@@ -56,7 +56,7 @@ class TlbSchemes:
 			if scheme.class_name == None:
 				continue
 			if scheme in self.schemes:
-				print(f"load_schemes_from_file warning: overwriting an existing tlb schema: {scheme.class_name}")
+				#print(f"load_schemes_from_text warning: overwriting an existing tlb schema: {scheme.class_name}")
 				self.schemes.remove(scheme)
 			self.schemes.append(scheme)
 			#print(f"TlbScheme: {scheme}")
@@ -113,7 +113,7 @@ class TlbSchemes:
 			result = self.deser_types(slice, scheme.link)
 		else:
 			result = self.deser_vars(slice, scheme.vars)
-			result["@name"] = scheme.name
+			result["@type"] = scheme.name
 		return result
 	#end define
 	
@@ -833,7 +833,7 @@ class TlbScheme:
 				#print(f"Found a logical equation. Skipping: {item}")
 				continue
 			if ':' not in item:
-				print(f"TLB schema syntax error found: {item}")
+				#print(f"TLB schema syntax error found: {item}")
 				continue
 			buff = item.split(':')
 			if item.startswith('^'):

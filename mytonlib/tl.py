@@ -147,7 +147,7 @@ class TlScheme:
 		for var_name, var_type in self.vars.items():
 			result[var_name] = self.deser_types(byte_stream, var_type, send_data)
 		result.to_class()
-		result["@name"] = self.name
+		result["@type"] = self.name
 		return result
 	#end define
 	

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
+import time
+import threading
 from bitstring import BitStream # pip3 install bitstring
 
 
@@ -21,9 +23,10 @@ def uint_le(data):
 #end define
 
 class Dict(dict):
-	def __init__(self, **kwargs):
-		for key, value in kwargs.items():
-			self[key] = value
+	def __init__(self, *args, **kwargs):
+		for item in args:
+			self._parse_dict(item)
+		self._parse_dict(kwargs)
 		self.to_class()
 	#end define
 	
@@ -34,7 +37,7 @@ class Dict(dict):
 	#end define
 	
 	def to_dict(self):
-		self["@name"] = self.__class__.__name__
+		self["@type"] = self.__class__.__name__
 		for key, value in self.__dict__.items():
 			self[key] = self._json_value(value)
 			#if type(value) == bytes:
@@ -48,6 +51,24 @@ class Dict(dict):
 		elif type(value) == BitStream:
 			value = value.hex
 		return value
+	#end define
+	
+	def _parse_dict(self, d):
+		for key, value in d.items():
+			if type(value) == dict:
+				value = Dict(value)
+			if type(value) == list:
+				value = self._parse_list(value)
+			self[key] = value
+	#end define
+	
+	def _parse_list(self, l):
+		result = list()
+		for value in l:
+			if type(value) == dict:
+				value = Dict(value)
+			result.append(value)
+		return result
 	#end define
 #end class
 
@@ -199,6 +220,30 @@ class Slice(Cell):
 		cell.refs = self.refs
 		cell.to_dict()
 		return cell
+	#end define
+#end class
+
+class Thread(threading.Thread):
+	def __init__(self, *args, **kwargs):
+		self.parent = threading.current_thread()
+		self.start_time = time.time()
+		self.children = list()
+		if type(self.parent) == threading._MainThread and not hasattr(self.parent, "children"):
+			setattr(self.parent, "children", list())
+		threading.Thread.__init__(self, *args, **kwargs)
+	#end define
+	
+	def run(self, *args, **kwargs):
+		self.parent.children.append(self.name)
+		threading.Thread.run(self, *args, **kwargs)
+		#wait = True
+		#while wait:
+		#	alive_children = [thr_name for thr_name in self.children if not thr_name.startswith("_ping_thr_")]
+		#	wait = len(alive_children) > 0
+	#end define
+	
+	def __del__(self, *args, **kwargs):
+		self.parent.children.remove(self.name)
 	#end define
 #end class
 

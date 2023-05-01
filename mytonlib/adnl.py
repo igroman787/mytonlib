@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
+import sys
 from os.path import isdir, dirname, join
-from os import listdir
 import time
 import json
+import random
 import base64
 import socket
 import x25519 # pip3 install x25519
@@ -23,8 +24,7 @@ from .tl import TlSchemes, Int, tl_len
 from .tlb import TlbSchemes
 from .boc import serialize_boc, deserialize_boc
 from .utils import parse_addr, hex2dec
-from .mytypes import Dict
-
+from .mytypes import Dict, Thread
 
 
 class AdnlUdpClient():
@@ -75,11 +75,11 @@ class AdnlUdpClient():
 	def connect(self, host, port, peer_public_key_b64):
 		timestamp = int(time.time())
 		peer_public_key = base64.b64decode(peer_public_key_b64)
-		peer_id = self.get_id(peer_public_key)
+		peer_id = self._get_id(peer_public_key)
 		
 		local_public_key = self.get_public_key(self.local_private_key)
 		channel_public_key = self.get_public_key(self.channel_private_key)
-		local_id = self.get_id(local_public_key)
+		local_id = self._get_id(local_public_key)
 		
 		# create PublicKey message
 		public_key_message = Dict(scheme_name="pub.ed25519", key=local_public_key.hex())
@@ -119,9 +119,9 @@ class AdnlUdpClient():
 		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
 		#print(f"packet_contents_message: {packet_contents_message.hex()}")
 		
-		checksum = self.sha256(packet_contents_message)
+		checksum = self._sha256(packet_contents_message)
 		secret = self.get_secret(self.local_private_key, peer_public_key)
-		encrypted_message = self.aes_encrypt_with_secret(packet_contents_message, secret, checksum)
+		encrypted_message = self._aes_encrypt_with_secret(packet_contents_message, secret, checksum)
 		send_data = peer_id + local_public_key + checksum + encrypted_message
 		#print(f"send_data: {send_data.hex()}")
 		
@@ -140,7 +140,7 @@ class AdnlUdpClient():
 		read_encrypted_message = byte_stream.read()
 		new_secret = self.get_secret(self.local_private_key, read_public_key)
 		read_message = self.aes_decrypt_with_secret(read_encrypted_message, new_secret, read_checksum)
-		checksum = self.sha256(read_message)
+		checksum = self._sha256(read_message)
 		if read_local_id != local_id:
 			raise Exception("connect error: read_local_id != local_id")
 		if read_checksum != checksum:
@@ -187,10 +187,10 @@ class AdnlUdpClient():
 			rand2 = secrets.token_bytes(15)
 		)
 		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
-		checksum = self.sha256(packet_contents_message)
-		encrypted_message = self.aes_encrypt_with_secret(packet_contents_message, channel_tx_key, checksum)
+		checksum = self._sha256(packet_contents_message)
+		encrypted_message = self._aes_encrypt_with_secret(packet_contents_message, channel_tx_key, checksum)
 		channel_tx_public_key = self.get_public_key(channel_tx_key)
-		tx_public_key_id = self.get_id(channel_tx_public_key)
+		tx_public_key_id = self._get_id(channel_tx_public_key)
 		send_data = tx_public_key_id + checksum + encrypted_message
 		print(f"send_data: {send_data.hex()}")
 		self.sock.send(send_data)
@@ -200,7 +200,7 @@ class AdnlUdpClient():
 	
 	def get_message_by_name(self, messages, name):
 		for message in messages:
-			message_name = message.get("@name")
+			message_name = message.get("@type")
 			if message_name == name:
 				return message
 	#end define
@@ -228,10 +228,10 @@ class AdnlUdpClient():
 		return public_key
 	#end define
 	
-	def aes_encrypt_with_secret(self, data, secret, checksum):
+	def _aes_encrypt_with_secret(self, data, secret, checksum):
 		key = secret[0:16] + checksum[16:32]
 		nonce = checksum[0:4] + secret[20:32]
-		cipher = self.create_aes_cipher(key, nonce)
+		cipher = self._create_aes_cipher(key, nonce)
 		encrypted_data = cipher.encrypt(data)
 		return encrypted_data
 	#end define
@@ -239,31 +239,35 @@ class AdnlUdpClient():
 	def aes_decrypt_with_secret(self, encrypted_data, secret, checksum):
 		key = secret[0:16] + checksum[16:32]
 		nonce = checksum[0:4] + secret[20:32]
-		cipher = self.create_aes_cipher(key, nonce)
+		cipher = self._create_aes_cipher(key, nonce)
 		data = cipher.decrypt(encrypted_data)
 		return data
 	#end define
 	
-	def create_aes_cipher(self, key, nonce):
+	def _create_aes_cipher(self, key, nonce):
 		ctrInitValue = int.from_bytes(nonce, "big")
 		ctr = Counter.new(128, initial_value=ctrInitValue)
 		cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
 		return cipher
 	#end define
 	
-	def get_id(self, pubkey):
+	def _get_id(self, pubkey):
 		magic = bytes.fromhex("c6b41348") # 0x4813b4c6
-		result = self.sha256(magic + pubkey)
+		result = self._sha256(magic + pubkey)
 		return result
 	#end define
 	
-	def sha256(self, data):
+	def _sha256(self, data):
 		return hashlib.sha256(data).digest()
 	#end define
 #end class
 
 class AdnlTcpClient:
 	def __init__(self):
+		self.host = None
+		self.port = None
+		self.ping_result = None
+		self.run_ping_thr = True
 		self.queue = list()
 		self.local = None
 		self.sock = None
@@ -279,6 +283,15 @@ class AdnlTcpClient:
 		self.tlb_schemes = TlbSchemes()
 		self.load_tl_schemes()
 		self.load_tlb_schemes()
+	#end define
+	
+	def __str__(self):
+		return f"<AdnlTcpClient {self.host}:{self.port}, ping={self.ping_result}, rc={sys.getrefcount(self)}>"
+	#end define
+	
+	def __del__(self):
+		self.run_ping_thr = False
+		self.sock.close()
 	#end define
 	
 	def load_tl_schemes(self):
@@ -298,57 +311,53 @@ class AdnlTcpClient:
 		my_dir = dirname(__file__)
 		self.tlb_schemes.load_schemes(join(my_dir, "block.fixes.tlb"))
 	#end define
-	
-	def add_log(self, text, type):
-		if self.local:
-			self.local.AddLog(text, type)
-		else:
-			print(text)
-	#end define
-	
-	def create_channel_keys(self):
-		# create local private key
-		sk = SigningKey.generate() # 32 bytes
-		self.channel_local_priv = sk.encode() # ed25519
-		self.channel_local_pub = sk.verify_key.encode() # ed25519
-	#end define
-	
-	def get_signed_address_list(self):
-		send_scheme = self.tl_schemes.get_scheme_by_name("dht.getSignedAddressList")
-		send_data = send_scheme.id
-	#end define
 
 	def connect(self, host, port, pubkey):
-		handshake = self.create_handshake(pubkey)
-
-		# create rx, tx cipher
-		self.rx_cipher = self.create_aes_cipher(self.rx_key, self.rx_nonce)
-		self.tx_cipher = self.create_aes_cipher(self.tx_key, self.tx_nonce)
-
-		# send handshake
+		# save connecting addr
+		self.host = host
+		self.port = port
+		
+		# connect to server
 		self.sock = socket.socket()
 		self.sock.settimeout(3)
 		self.sock.connect((host, port))
-		self.sock.send(handshake)
 		
-		self.get_datagram()
+		# create handshake
+		handshake = self._create_handshake(pubkey)
+
+		# create rx, tx cipher
+		self.rx_cipher = self._create_aes_cipher(self.rx_key, self.rx_nonce)
+		self.tx_cipher = self._create_aes_cipher(self.tx_key, self.tx_nonce)
+
+		# send handshake
+		self.sock.sendall(handshake)
+		
+		self._get_datagram()
+		self.ping_result = self.ping()
 		
 		# Start ping thread
-		threading.Thread(target=self.ping_thr, daemon=True).start()
+		self._start_thread(self._ping_thr)
 	#end define
 	
-	def ping_thr(self):
-		while True:
+	def _start_thread(self, func, *args, **kwargs):
+		tnum = random.randint(1, 999999)
+		tname = f"{func.__name__}_{tnum}"
+		thr = Thread(target=func, args=args, name=tname, daemon=True)
+		#setattr(thr, "parent", threading.current_thread())
+		#setattr(thr, "start_time", time.time())
+		thr.start()
+		return thr
+	#end define
+	
+	def _ping_thr(self):
+		while self.run_ping_thr:
+			self.ping_result = self.ping()
 			time.sleep(5)
-			try:
-				self.ping()
-			except Exception as err:
-				self.add_log(f"ping_thr error: {err}")
 	#end define
 
-	def create_handshake(self, pubkey_b64):
+	def _create_handshake(self, pubkey_b64):
 		peer_pub = base64.b64decode(pubkey_b64) # 32 bytes, ed25519
-		peer_id = self.get_id(peer_pub) # 32 bytes
+		peer_id = self._get_id(peer_pub) # 32 bytes
 		
 		# create local private key
 		sk = SigningKey.generate() # 32 bytes
@@ -370,94 +379,94 @@ class AdnlTcpClient:
 		aes_params = self.rx_key + self.tx_key + self.rx_nonce + self.tx_nonce + padding # 160 bytes
 
 		#create handshake
-		checksum = self.sha256(aes_params) # 32 bytes
-		encrypted_aes_params = self.aes_encrypt_with_secret(aes_params, secret)
+		checksum = self._sha256(aes_params) # 32 bytes
+		encrypted_aes_params = self._aes_encrypt_with_secret(aes_params, secret)
 		handshake = peer_id + local_pub + checksum + encrypted_aes_params # 256 bytes
 		return handshake
 	#end define
 
-	def get_datagram(self):
-		data = self.receive(4)
+	def _get_datagram(self):
+		data = self._receive(4)
 		dlen = int.from_bytes(data, "little")
-		data = self.receive(dlen)
+		data = self._receive(dlen)
 		nonce = data[0:32]
 		buffer = data[32:-32]
 		checksum = data[-32:]
-		hash = self.sha256(nonce + buffer)
+		hash = self._sha256(nonce + buffer)
 		if hash != checksum:
 			print(f"buffer[{len(buffer)}]: {buffer.hex()}")
 			print("hash:", hash.hex())
 			print("checksum:", checksum.hex())
-			raise Exception("get_datagram error: Checksum does not match")
+			raise Exception("_get_datagram error: Checksum does not match")
 		return buffer
 	#end define
 
-	def send_datagram(self, data):
+	def _send_datagram(self, data):
 		nonce = secrets.token_bytes(32)
-		checksum = self.sha256(nonce + data)
+		checksum = self._sha256(nonce + data)
 		dlen = len(nonce + data + checksum)
 		dlen = dlen.to_bytes(4, byteorder="little")
 		sdata = dlen + nonce + data + checksum
-		self.send(sdata)
+		self._send_data(sdata)
 	#end define
 
-	def send(self, data):
+	def _send_data(self, data):
 		sdata = self.tx_cipher.encrypt(data)
 		self.sock.send(sdata)
 	#end define
 
-	def receive(self, dlen):
+	def _receive(self, dlen):
 		chunks = []
 		bytes_read = 0
 		while bytes_read < dlen:
 			read_len = min(dlen - bytes_read, 1024)
 			chunk = self.sock.recv(read_len)
 			if chunk == b'':
-				raise RuntimeError("receive error: socket connection broken")
+				raise RuntimeError("_receive error: socket connection broken")
 			chunks.append(chunk)
 			bytes_read += len(chunk)
 		rdata = b''.join(chunks)
 		#print(f"dlen: {dlen} -> {len(rdata)}")
 		if len(rdata) == 0:
-			raise Exception("receive error: no data")
+			raise Exception("_receive error: no data")
 		result = self.rx_cipher.decrypt(rdata)
 		return result
 	#end define
 
-	def aes_encrypt_with_secret(self, aes_params, secret):
-		hash = self.sha256(aes_params)
+	def _aes_encrypt_with_secret(self, aes_params, secret):
+		hash = self._sha256(aes_params)
 		key = secret[0:16] + hash[16:32]
 		nonce = hash[0:4] + secret[20:32]
-		cipher = self.create_aes_cipher(key, nonce)
+		cipher = self._create_aes_cipher(key, nonce)
 		result = cipher.encrypt(aes_params)
 		return result
 	#end define
 
-	def create_aes_cipher(self, key, nonce):
+	def _create_aes_cipher(self, key, nonce):
 		ctrInitValue = int.from_bytes(nonce, "big")
 		ctr = Counter.new(128, initial_value=ctrInitValue)
 		cipher = AES.new(key, AES.MODE_CTR, counter=ctr)
 		return cipher
 	#end define
 
-	def sha256(self, data):
+	def _sha256(self, data):
 		return hashlib.sha256(data).digest()
 	#end define
 
-	def get_id(self, pubkey):
+	def _get_id(self, pubkey):
 		magic = bytes.fromhex("c6b41348") # 0x4813b4c6
-		result = self.sha256(magic + pubkey)
+		result = self._sha256(magic + pubkey)
 		return result
 	#end define
 	
-	def get_method_id(self, method_name):
+	def _get_method_id(self, method_name):
 		# https://github.com/ton-blockchain/ton/blob/24dc184a2ea67f9c47042b4104bbb4d82289fac1/crypto/smc-envelope/SmartContract.h#L75
 		buff = fastcrc.crc16.xmodem(method_name.encode("utf8"))
 		result = (buff & 0xffff) | 0x10000
 		return result
 	#end define
 	
-	def align_bytes(self, data, alen=4):
+	def _align_bytes(self, data, alen=4):
 		dlen = len(data)
 		nlen = 0
 		if dlen % alen != 0:
@@ -468,42 +477,58 @@ class AdnlTcpClient:
 	#end define
 	
 	def ping(self):
-		request_id = self.wait()
-		result = self.ping_process()
-		self.free(request_id)
+		result = None
+		request_id = self._wait()
+		try:
+			result = self._ping_process()
+		except ConnectionError:
+			self.run_ping_thr = False
+		except Exception as err:
+			print(f"ping error: {err}, self: {self}")
+		self._free(request_id)
 		return result
 	#end define
 	
-	def ping_process(self):
+	def _ping_process(self):
 		# send
+		start = time.time()
 		send_scheme = self.tl_schemes.get_scheme_by_name("tcp.ping")
 		random_id = secrets.token_bytes(8)
 		send_data = send_scheme.id + random_id
-		self.send_datagram(send_data)
+		self._send_datagram(send_data)
 		
 		# get
-		read_data = self.get_datagram()
+		read_data = self._get_datagram()
 		byte_stream = ByteStream(read_data)
 		read_scheme_id = byte_stream.read(4)
 		read_scheme = self.tl_schemes.get_scheme_by_id(read_scheme_id)
 		data = read_scheme.deserialize(byte_stream)
 		if data.random_id != Int(random_id):
-			raise Exception("Adnl ping error: random_id does not match")
-		return True
+			raise ConnectionError("Adnl ping error: random_id does not match")
+		diff = time.time() - start
+		diff = int(diff * 1000) # milliseconds
+		return diff
 	#end define
 	
-	def query(self, data):
+	def _query(self, send_data):
+		request_id = self._wait()
+		read_data = self._query_process(send_data)
+		self._free(request_id)
+		return read_data
+	#end define
+	
+	def _query_process(self, data):
 		# send
 		send_scheme = self.tl_schemes.get_scheme_by_name("adnl.message.query")
 		query_id = secrets.token_bytes(32)
 		dlen = tl_len(data)
-		data = self.align_bytes(dlen + data)
+		data = self._align_bytes(dlen + data)
 		send_data = send_scheme.id + query_id + data
-		self.send_datagram(send_data)
+		self._send_datagram(send_data)
 		#print(f"send_data: {send_data.hex()}")
 		
 		# get
-		read_data = self.get_datagram()
+		read_data = self._get_datagram()
 		#print(f"read_data[{len(read_data)}]: {read_data.hex()}")
 		byte_stream = ByteStream(read_data)
 		read_scheme_id = byte_stream.read(4)
@@ -514,51 +539,44 @@ class AdnlTcpClient:
 		return data.answer
 	#end define
 	
-	def query_with_queue(self, send_data):
-		request_id = self.wait()
-		read_data = self.query(send_data)
-		self.free(request_id)
-		return read_data
-	#end define
-	
-	def wait(self):
+	def _wait(self):
 		request_id = secrets.token_bytes(4)
 		if request_id not in self.queue:
 			self.queue.append(request_id)
 		else:
 			print("Wow. Recreating the request id")
-			self.wait()
+			self._wait()
 		while self.queue.index(request_id) > 0:
 			time.sleep(0.01)
 		return request_id
 	#end define
 	
-	def free(self, request_id):
+	def _free(self, request_id):
 		if request_id in self.queue:
 			self.queue.remove(request_id)
 		else:
 			print("Wow. You are faster than me")
 	#end define
 	
-	def lite_server_query(self, data):
+	def _lite_server_query(self, data):
 		# send
 		send_scheme = self.tl_schemes.get_scheme_by_name("liteServer.query")
 		dlen = tl_len(data)
-		data = self.align_bytes(dlen + data)
+		data = self._align_bytes(dlen + data)
 		send_data = send_scheme.id + data
 		
 		# get
-		read_data = self.query_with_queue(send_data)
+		read_data = self._query(send_data)
 		return read_data
 	#end define
 	
-	def lite_server(self, function_name, **data):
+	def _lite_server(self, function_name, **data):
 		# send
 		send_scheme = self.tl_schemes.get_scheme_by_name(f"liteServer.{function_name}")
 		send_data = send_scheme.id + send_scheme.serialize(**data)
 		
 		# get
-		read_data = self.lite_server_query(send_data)
+		read_data = self._lite_server_query(send_data)
 		#print(f"get: {read_data.hex()}")
 		byte_stream = ByteStream(read_data)
 		read_scheme_id = byte_stream.read(4)
@@ -573,14 +591,14 @@ class AdnlTcpClient:
 		"""
 		liteServer.getMasterchainInfo = liteServer.MasterchainInfo;
 		"""
-		return self.lite_server("getMasterchainInfo")
+		return self._lite_server("getMasterchainInfo")
 	#end define
 	
 	def get_time(self):
 		"""
 		liteServer.getTime = liteServer.CurrentTime;
 		"""
-		return self.lite_server("getTime")
+		return self._lite_server("getTime")
 	#end define
 	
 	def get_block(self, block_id_ext=None):
@@ -592,7 +610,7 @@ class AdnlTcpClient:
 			block_id_ext = data.last
 		#end if
 		
-		block_data = self.lite_server("getBlock", id=block_id_ext)
+		block_data = self._lite_server("getBlock", id=block_id_ext)
 		#print(f"get_block block_data: {block_data.data.hex()}")
 		data_cell = deserialize_boc(block_data.data)
 		#print(f"get_block data_cell: {json.dumps(data_cell, indent=4)}")
@@ -610,7 +628,7 @@ class AdnlTcpClient:
 			block_id_ext = data.last
 		#end if
 		
-		block_data = self.lite_server("getState", id=block_id_ext)
+		block_data = self._lite_server("getState", id=block_id_ext)
 		data_cell = deserialize_boc(block_data.data)
 		data = self.tlb_schemes.deserialize(data_cell, expected="ShardState")
 		return data
@@ -627,7 +645,7 @@ class AdnlTcpClient:
 		#end if
 		
 		mode = self.set_flags("mode.null")
-		block_header_data = self.lite_server("getBlockHeader", id=block_id_ext, mode=mode)
+		block_header_data = self._lite_server("getBlockHeader", id=block_id_ext, mode=mode)
 		data_cell = deserialize_boc(block_header_data.header_proof)
 		#print(f"get_block_header data_cell: {json.dumps(data_cell, indent=4)}")
 		data = self.tlb_schemes.deserialize(data_cell, expected="BlockHeader")
@@ -661,10 +679,13 @@ class AdnlTcpClient:
 		mode = self.set_flags("mode.0.2")
 		workchain, addr = parse_addr(input_addr)
 		account_id = {"workchain":workchain, "id":addr}
-		method_id = self.get_method_id(method_name)
+		method_id = self._get_method_id(method_name)
 		params_cell = self.tlb_schemes.serialize(required="VmStack", params=params)
 		params_boc = serialize_boc(params_cell)
-		data = self.lite_server("runSmcMethod", mode=mode, id=block_id_ext, account=account_id, method_id=method_id, params=params_boc)
+		data = self._lite_server("runSmcMethod", mode=mode, id=block_id_ext, account=account_id, method_id=method_id, params=params_boc)
+		if data.exit_code != 0:
+			raise Exception(f"run_smc_method error: exit_code={data.exit_code}")
+		#end if
 		
 		# data.proof # TODO
 		# data.shard_proof # TODO
@@ -675,14 +696,11 @@ class AdnlTcpClient:
 		result = data.stack
 		if len(result) == 1:
 			result = result.pop()
-		#if "value" in result:
-		#	return result.value
 		return result
 	#end define
 	
 	def get_account_state(self, input_addr, block_id_ext=None):
 		"""
-		TODO: (MERKLE_PROOF ShardStateUnsplit)
 		liteServer.getAccountState id:tonNode.blockIdExt account:liteServer.accountId = liteServer.AccountState;
 		liteServer.accountState id:tonNode.blockIdExt shardblk:tonNode.blockIdExt shard_proof:bytes proof:bytes state:bytes = liteServer.AccountState;
 		"""
@@ -693,7 +711,7 @@ class AdnlTcpClient:
 		
 		workchain, addr = parse_addr(input_addr)
 		account_id = {"workchain":workchain, "id":addr}
-		account_data = self.lite_server("getAccountState", id=block_id_ext, account=account_id)
+		account_data = self._lite_server("getAccountState", id=block_id_ext, account=account_id)
 		# account_data.proof # TODO
 		# account_data.shard_proof # TODO
 		state_cell = deserialize_boc(account_data.state)
@@ -709,7 +727,7 @@ class AdnlTcpClient:
 		return account_state
 	#end define
 	
-	def get_all_shards(self, block_id_ext=None):
+	def get_all_shards_info(self, block_id_ext=None):
 		"""
 		liteServer.getAllShardsInfo id:tonNode.blockIdExt = liteServer.AllShardsInfo;
 		liteServer.allShardsInfo id:tonNode.blockIdExt proof:bytes data:bytes = liteServer.AllShardsInfo;
@@ -719,7 +737,7 @@ class AdnlTcpClient:
 			block_id_ext = data.last
 		#end if
 		
-		shards_data = self.lite_server("getAllShardsInfo", id=block_id_ext)
+		shards_data = self._lite_server("getAllShardsInfo", id=block_id_ext)
 		# shards_data.proof # TODO
 		data_cell = deserialize_boc(shards_data.data)
 		data = self.tlb_schemes.deserialize(data_cell, expected="ShardHashes")
@@ -740,7 +758,6 @@ class AdnlTcpClient:
 	
 	def get_config_params(self, params, block_id_ext=None):
 		"""
-		TODO: (MERKLE_PROOF ShardStateUnsplit)
 		liteServer.getConfigParams mode:# id:tonNode.blockIdExt param_list:(vector int) = liteServer.ConfigInfo;
 		liteServer.configInfo mode:# id:tonNode.blockIdExt state_proof:bytes config_proof:bytes = liteServer.ConfigInfo;
 		"""
@@ -754,7 +771,7 @@ class AdnlTcpClient:
 		#end if
 		
 		mode = self.set_flags("mode.null")
-		config_params_data = self.lite_server("getConfigParams", id=block_id_ext, mode=mode, param_list=param_list)
+		config_params_data = self._lite_server("getConfigParams", id=block_id_ext, mode=mode, param_list=param_list)
 		# config_params_data.state_proof # TODO
 		#state_proof_cell = deserialize_boc(config_params_data.state_proof)
 		config_proof_cell = deserialize_boc(config_params_data.config_proof)
@@ -783,7 +800,7 @@ class AdnlTcpClient:
 			block_id_ext = data.last
 		#end if
 		
-		transaction_data = self.lite_server("getOneTransaction", id=block_id_ext, account=account_id, lt=trans_lt)
+		transaction_data = self._lite_server("getOneTransaction", id=block_id_ext, account=account_id, lt=trans_lt)
 		# transaction_data.proof # TODO
 		#print(f"get_one_transaction transaction_data: {transaction_data}")
 		transaction_cell = deserialize_boc(transaction_data.transaction)
@@ -800,7 +817,7 @@ class AdnlTcpClient:
 		workchain, addr = parse_addr(input_addr)
 		account_id = {"workchain":workchain, "id":addr}
 		account_state = self.get_account_state(input_addr)
-		transactions_data = self.lite_server("getTransactions", count=count, account=account_id, lt=account_state.last_trans_lt, hash=account_state.last_trans_hash)
+		transactions_data = self._lite_server("getTransactions", count=count, account=account_id, lt=account_state.last_trans_lt, hash=account_state.last_trans_hash)
 		# transactions_data.ids # TODO
 		transaction_cells = deserialize_boc(transactions_data.transactions)
 		if type(transaction_cells) != list:
@@ -822,7 +839,7 @@ class AdnlTcpClient:
 		"""
 		
 		mode = self.set_flags("mode.0.1.2")
-		transactions_data = self.lite_server("listBlockTransactions", id=block_id_ext, mode=mode, count=count)
+		transactions_data = self._lite_server("listBlockTransactions", id=block_id_ext, mode=mode, count=count)
 		#print(f"get_block_transactions: transactions_data={transactions_data}")
 		return transactions_data.ids
 	#end define
@@ -841,7 +858,7 @@ class AdnlTcpClient:
 			mode_str = "mode.2"
 		mode = self.set_flags(mode_str)
 		block_id = {"workchain": workchain, "shard": shard, "seqno": seqno}
-		block_data = self.lite_server("lookupBlock", mode=mode, id=block_id, lt=lt, utime=utime)
+		block_data = self._lite_server("lookupBlock", mode=mode, id=block_id, lt=lt, utime=utime)
 		block_cell = deserialize_boc(block_data.header_proof)
 		#result = self.tlb_schemes.deserialize(block_cell, expected="BlockHeader")
 		return block_data.id
@@ -869,7 +886,7 @@ class AdnlTcpClient:
 			raise Exception("send_ext_msg error: body is not a boc")
 		#end if
 		
-		data = self.lite_server("sendMessage", body=body)
+		data = self._lite_server("sendMessage", body=body)
 		return data
 	#end define
 #end class

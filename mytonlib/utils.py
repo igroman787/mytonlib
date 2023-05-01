@@ -3,8 +3,18 @@
 
 import base64
 import fastcrc
+import struct
+import socket
 
 
+
+def ip2int(addr):
+	return struct.unpack("!i", socket.inet_aton(addr))[0]
+#end define
+
+def int2ip(dec):
+	return socket.inet_ntoa(struct.pack("!i", dec))
+#end define
 
 def hex2dec(h):
 	return int(h, base=16)
@@ -101,3 +111,17 @@ def IsAddrFull(addr):
 	except: pass
 	return False
 #end define
+
+class bcolors:
+	'''This class is designed to display text in color format'''
+	red = "\033[31m"
+	green = "\033[32m"
+	yellow = "\033[33m"
+	blue = "\033[34m"
+	magenta = "\033[35m"
+	cyan = "\033[36m"
+	endc = "\033[0m"
+	bold = "\033[1m"
+	underline = "\033[4m"
+	default = "\033[39m"
+#end class
