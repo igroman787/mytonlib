@@ -2,6 +2,7 @@
 # -*- coding: utf_8 -*-
 
 import time
+import hashlib
 import threading
 from bitstring import BitStream # pip3 install bitstring
 
@@ -73,12 +74,15 @@ class Dict(dict):
 #end class
 
 class Cell(Dict):
-	def __init__(self):
+	def __init__(self, data=None):
 		self.special = False
 		self.bits_len = 0
 		self.level = 0
 		self.data = bytes()
 		self.refs = list()
+		if data != None and type(data) == bytes:
+			self.data = data
+			self.bits_len = 8 * len(data)
 	#end define
 	
 	def __eq__(self, cell):
@@ -110,6 +114,51 @@ class Cell(Dict):
 		self.level = cell.level
 		self.data = cell.data
 		self.refs = cell.refs
+	#end define
+	
+	def hash(self):
+		dsc = self.get_descriptors()
+		#print(f"hash_dsc: {dsc.hex()}")
+		buff  = dsc + self.data
+		for item in self.refs:
+			depth = self.get_depth()
+			depth_bytes = int.to_bytes(depth, length=2, byteorder="big")
+			#print(f"depth: {depth}, {depth_bytes.hex()}")
+			#print(f"c.refs[i].getHash: {item.hash().hex()}")
+			item_hash = item.hash()
+			buff += depth_bytes + item_hash.bytes
+		result_bytes = hashlib.sha256(buff).digest()
+		result = BitStream(bytes=result_bytes)
+		return result
+	#end define
+	
+	def get_descriptors(self, lvl_mask=0):
+		ln = (self.bits_len // 8) * 2
+		if self.bits_len % 8 != 0:
+			ln += 1
+		#end if
+		
+		spec_bit = 0
+		if self.special is True:
+			spec_bit = 8
+		#end if
+		
+		a = len(self.refs) + spec_bit + lvl_mask*32
+		a_byte = int.to_bytes(a, length=1, byteorder="big")
+		b_byte = int.to_bytes(ln, length=1, byteorder="big")
+		result = a_byte + b_byte
+		return result
+	#end define
+	
+	def get_depth(self):
+		depths_list = [-1]
+		for item in self.refs:
+			item_depth = item.get_depth() + 1
+			depths_list.append(item_depth)
+		#end for
+		
+		depth = max(depths_list)
+		return depth
 	#end define
 #end class
 
@@ -151,7 +200,7 @@ class Slice(Cell):
 		return buff.bytes
 	#end define
 	
-	def read(self, read_len):
+	def read(self, read_len=None):
 		bit_stream = self.bit_stream
 		available_len = bit_stream.len - bit_stream.pos
 		if read_len == None:
@@ -170,7 +219,7 @@ class Slice(Cell):
 		return buff.bytes
 	#end define
 	
-	def show(self, show_len):
+	def show(self, show_len=None):
 		pos_old = self.bit_stream.pos
 		available_len = self.bit_stream.len - self.bit_stream.pos
 		if show_len == None:
@@ -220,6 +269,10 @@ class Slice(Cell):
 		cell.refs = self.refs
 		cell.to_dict()
 		return cell
+	#end define
+	
+	def hash(self):
+		return self.to_cell().hash()
 	#end define
 #end class
 

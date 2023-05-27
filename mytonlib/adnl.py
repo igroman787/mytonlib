@@ -459,7 +459,7 @@ class AdnlTcpClient:
 		return result
 	#end define
 	
-	def _get_method_id(self, method_name):
+	def get_method_id(self, method_name):
 		# https://github.com/ton-blockchain/ton/blob/24dc184a2ea67f9c47042b4104bbb4d82289fac1/crypto/smc-envelope/SmartContract.h#L75
 		buff = fastcrc.crc16.xmodem(method_name.encode("utf8"))
 		result = (buff & 0xffff) | 0x10000
@@ -483,8 +483,11 @@ class AdnlTcpClient:
 			result = self._ping_process()
 		except ConnectionError:
 			self.run_ping_thr = False
+		except OSError:
+			self.run_ping_thr = False
 		except Exception as err:
 			print(f"ping error: {err}, self: {self}")
+			self.run_ping_thr = False
 		self._free(request_id)
 		return result
 	#end define
@@ -679,7 +682,7 @@ class AdnlTcpClient:
 		mode = self.set_flags("mode.0.2")
 		workchain, addr = parse_addr(input_addr)
 		account_id = {"workchain":workchain, "id":addr}
-		method_id = self._get_method_id(method_name)
+		method_id = self.get_method_id(method_name)
 		params_cell = self.tlb_schemes.serialize(required="VmStack", params=params)
 		params_boc = serialize_boc(params_cell)
 		data = self._lite_server("runSmcMethod", mode=mode, id=block_id_ext, account=account_id, method_id=method_id, params=params_boc)

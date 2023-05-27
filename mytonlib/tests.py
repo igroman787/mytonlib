@@ -9,6 +9,7 @@ from .balancer import AdnlTcpClientWithBalancer
 from .mytypes import Cell, Slice
 from .scanner import TonBlocksScanner
 from .boc import deserialize_boc
+from .tvm.tvm import TVM
 
 
 
@@ -182,11 +183,6 @@ def test_run_smc_method2():
 	print("run_smc_method:", data)
 #end define
 
-def _sleep():
-	while True:
-		time.sleep(1)
-#end define
-
 def test_scanner():
 	global_config_url = "/usr/bin/ton/local.config.json"
 	#global_config_url = "https://ton-blockchain.github.io/global.config.json"
@@ -237,4 +233,53 @@ def test_boc():
 	print(f"cells1: {cells1}")
 	cells2 = deserialize_boc(boc2)
 	print(f"cells2: {cells2}")
+#end define
+
+def test_tvm():
+	global_config_url = "/usr/bin/ton/local.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
+	accoun_state = adnl.get_account_state("EQDeyWNhx_32hP6KlPYdWA8hov28_8XBScTlyz_6YZc-aqNs")
+	message_cell = Cell(bytes.fromhex("0AF667A99CA0CBCC036EAF9094450F56EDDA12879C3A1F89D8E9F1D875CA43990D8CBB9D96B5F915D39461DBD8AF04440FF10CC73F475265AC4B2C1B143138000000000103"))
+	message_cell2 = Cell(bytes.fromhex("627FA08D8AABA06112661A477E0409F1CE4F93E2F07B041903087C73E774D64F8BDA987A120000000000000000000000000000"))
+	message_cell.add_ref(message_cell2)
+	
+	import hashlib
+	from nacl.signing import SigningKey
+	priv_key_bytes = bytes.fromhex("c166215045844e6b9d1b3396e18af7ba4616e1f70d340fb81ac14647e8dfe97c")
+	hash_bytes = bytes.fromhex("7f7cd050cca0573a113a12c85965765a0a091c1f95a95b605dd3b1933ffe49fe")
+	hash_bytes2 = hashlib.sha256(hash_bytes).digest()
+	signing_key = SigningKey(priv_key_bytes)
+	signature_bytes = signing_key.sign(hash_bytes)
+	signature_bytes2 = signing_key.sign(hash_bytes2)
+	verify_key_bytes  = signing_key.verify_key.encode()
+	print("verify_key:", verify_key_bytes.hex())
+	print("signature_bytes:", signature_bytes.hex())
+	print("signature_bytes2:", signature_bytes2.hex())
+	print("hash_bytes:", hash_bytes.hex())
+	print("hash_bytes2:", hash_bytes2.hex())
+	print("cell_hash:", message_cell.hash().hex)
+	
+	tvm = TVM(accoun_state.storage.state.code, accoun_state.storage.state.data, message_cell)
+	tvm.run()
+#end define
+
+def test_cell_hash():
+	cell_boc = bytes.fromhex("b5ee9c7241010101000a00000f00000000000000dfabfb4138")
+	true_cell_hash = bytes.fromhex("5ab26fa9292eb08bf90b95532c83ece61380e1bd6b04ea2125202b2cab17035d")
+	cell = deserialize_boc(cell_boc)
+	cell_hash = cell.hash()
+	cell_json = json.dumps(cell, indent=4)
+	print("cell:", cell)
+	#print("cell_json:", cell_json)
+	print("cell_hash:", cell_hash.hex(), cell_hash==true_cell_hash)
+	print("--- --- ---")
+	
+	cell_boc = bytes.fromhex("b5ee9c7241010401002b00010f000000000000061301010f000000000000029b02010f000000000017910703000f00000000000000df71dae7b7")
+	true_cell_hash = bytes.fromhex("bb2509fe3cff8f1faae19213774d218c018f9616cd397850c8ad9038db84eaa9")
+	cell = deserialize_boc(cell_boc)
+	cell_hash = cell.hash()
+	cell_json = json.dumps(cell, indent=4)
+	print("cell:", cell)
+	#print("cell_json:", cell_json)
+	print("cell_hash:", cell_hash.hex(), cell_hash==true_cell_hash)
 #end define

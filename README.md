@@ -1,5 +1,6 @@
 ## What is it?
-This is a native library for working with The Open Network. Without using `libtonlibjson.so`
+This is a native library for working with The Open Network - without using `libtonlibjson.so`. But for nativeness, we have to pay with speed.
+This library was written based on this documentation: https://github.com/xssnick/ton-deep-doc
 
 ## Installation
 ```sh
@@ -7,6 +8,17 @@ pip3 install mytonlib
 ```
 
 ## How to use
+```python
+from mytonlib import AdnlTcpClientWithBalancer
+
+global_config_url = "https://ton-blockchain.github.io/global.config.json"
+adnl = AdnlTcpClientWithBalancer(global_config_url)
+
+# Get masterchain info
+adnl.get_masterchain_info()
+```
+
+## How to use without balancer
 ```python
 from mytonlib import AdnlTcpClient
 
@@ -48,11 +60,16 @@ lookup_block			# Looks up a block by workchain, shard and seqno/lt/time, and sho
 ## TLB unpacking 
 A feature of this library is the automatic unpacking of data according to the TLB scheme:
 ```python
+from mytonlib import TlbSchemes
+
+tlb_schemes = TlbSchemes()
+tlb_schemes.load_schemes("/usr/src/ton/tl/generate/scheme/")
+
 data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
 print(data) # or print(json.dumps(data, indent=4))
 
-adnl.tlb_schemes.load_schemes_from_text("mycell$_ value:uint64 = MyCell;")
-data = adnl.tlb_schemes.deserialize(data.cell, expected="MyCell")
+tlb_schemes.load_schemes_from_text("mycell$_ value:uint64 = MyCell;")
+data = tlb_schemes.deserialize(data, expected="MyCell")
 print(data.value)
 ```
 
