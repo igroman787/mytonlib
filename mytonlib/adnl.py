@@ -483,6 +483,8 @@ class AdnlTcpClient:
 			result = self._ping_process()
 		except ConnectionError:
 			self.run_ping_thr = False
+		except socket.timeout:
+			self.run_ping_thr = False
 		except OSError:
 			self.run_ping_thr = False
 		except Exception as err:

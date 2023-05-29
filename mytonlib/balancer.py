@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
-import os # debug
+#import os # debug
 import time
 import json
-import psutil # debug
+#import psutil # debug
 import socket
 import random
 import threading
@@ -93,8 +93,8 @@ class AdnlTcpClientWithBalancer:
 		while True:
 			time.sleep(5)
 			self._clear_liteservers()
-			self._debug_thrs()
-			self._debug_lite_servers()
+			#self._debug_thrs()
+			#self._debug_lite_servers()
 	#end define
 	
 	def _replicate_liteserver_thr(self):
