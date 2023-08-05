@@ -6,16 +6,11 @@ import json
 import time
 from .adnl import AdnlTcpClient, AdnlUdpClient
 from .balancer import AdnlTcpClientWithBalancer
-from .mytypes import Cell, Slice
+from .mytypes import Cell, Slice, Dict
 from .scanner import TonBlocksScanner
 from .boc import deserialize_boc
 from .tvm.tvm import TVM
-
-
-
-host = "185.86.79.9"
-port = 4701
-pubkey = "G6cNAr6wXBBByWDzddEWP5xMFsAcp6y13fXA8Q7EJlM="
+from .tlb import TlbSchemes
 
 
 def test_lite_client():
@@ -23,9 +18,8 @@ def test_lite_client():
 	Test commands from lite-client
 	"""
 
-	adnl = AdnlTcpClient()
-	adnl.connect(host, port, pubkey)
-	adnl.ping()
+	global_config_url = "https://ton-blockchain.github.io/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
 
 	# time - Get server time
 	data = adnl.get_time()
@@ -124,9 +118,9 @@ def test_lite_client():
 #end define
 
 def test_udp():
-	host = "65.21.7.173"
-	port = 15813
-	pubkey = "fZnkoIAxrTd4xeBgVpZFRm5SvVvSx7eN3Vbe8c83YMk="
+	host = "172.104.59.125"
+	port = 14432
+	pubkey = "/YDNd+IwRUgL0mq21oC0L3RxrS8gTu0nciSPUrhqR78="
 	
 	adnl = AdnlUdpClient()
 	adnl.connect(host, port, pubkey)
@@ -136,7 +130,6 @@ def test_cell():
 	cell = Cell()
 	cell.data = bytes.fromhex("010203")
 	cell.bits_len = len(cell.data) * 8
-	cell.to_dict()
 	print("cell:", cell)
 	print("cell_json:", json.dumps(cell, indent=4))
 	
@@ -144,36 +137,40 @@ def test_cell():
 	print("slice:", slice)
 	print("slice_json:", json.dumps(slice, indent=4))
 	
-	r1 = slice.compare_byte_prefix("01")
-	r2 = slice.compare_byte_prefix("02")
+	r1 = slice.compare_byte_prefix("01", move_pos=True)
+	r2 = slice.compare_byte_prefix("02", move_pos=False)
 	print(f"is slice has prefix `01`: {r1}")
 	print(f"is slice has prefix `02`: {r2}")
 	print(f"slice: {slice}")
 #end define
 
 def test_config(papam=32):
-	adnl = AdnlTcpClient()
-	adnl.connect(host, port, pubkey)
+	global_config_url = "https://ton-blockchain.github.io/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
 	
 	data = adnl.get_config_params(papam)
 	print("get_config_params:", json.dumps(data, indent=4))
 #end define
 
 def test_run_smc_method():
-	adnl = AdnlTcpClient()
-	adnl.connect(host, port, pubkey)
+	global_config_url = "https://ton-blockchain.github.io/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
 	
 	data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
 	print("run_smc_method:", data)
 
-	adnl.tlb_schemes.load_schemes_from_text("mycell$_ value:uint64 = MyCell;")
-	data = adnl.tlb_schemes.deserialize(data, expected="MyCell")
+	tlb_schemes = TlbSchemes()
+	tlb_schemes.load_schemes("/usr/src/ton/tl/generate/scheme/")
+	
+	tlb_schemes.load_schemes_from_text("mycell$_ value:uint64 = MyCell;")
+	data = tlb_schemes.deserialize(data, expected="MyCell")
+	print("data:", data)
 	print("data.value:", data.value)
 #end define
 
 def test_run_smc_method2():
-	adnl = AdnlTcpClient()
-	adnl.connect(host, port, pubkey)
+	global_config_url = "https://ton-blockchain.github.io/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
 	
 	mc_info = adnl.get_masterchain_info()
 	block_id_ext = adnl.lookup_block(workchain=mc_info.last.workchain, shard=mc_info.last.shard, utime=1677006000)
@@ -213,7 +210,7 @@ def test_scanner():
 #end define
 
 def test_proposals_list():
-	global_config_url = "/usr/bin/ton/local.config.json"
+	global_config_url = "/usr/bin/ton/global.config.json"
 	adnl = AdnlTcpClientWithBalancer(global_config_url)
 	
 	mc_info = adnl.get_masterchain_info()
@@ -270,8 +267,8 @@ def test_cell_hash():
 	cell_hash = cell.hash()
 	cell_json = json.dumps(cell, indent=4)
 	print("cell:", cell)
-	#print("cell_json:", cell_json)
-	print("cell_hash:", cell_hash.hex(), cell_hash==true_cell_hash)
+	print("cell_json:", cell_json)
+	print("cell_hash:", cell_hash.hex, cell_hash==true_cell_hash)
 	print("--- --- ---")
 	
 	cell_boc = bytes.fromhex("b5ee9c7241010401002b00010f000000000000061301010f000000000000029b02010f000000000017910703000f00000000000000df71dae7b7")
@@ -280,6 +277,6 @@ def test_cell_hash():
 	cell_hash = cell.hash()
 	cell_json = json.dumps(cell, indent=4)
 	print("cell:", cell)
-	#print("cell_json:", cell_json)
-	print("cell_hash:", cell_hash.hex(), cell_hash==true_cell_hash)
+	print("cell_json:", cell_json)
+	print("cell_hash:", cell_hash.hex, cell_hash==true_cell_hash)
 #end define

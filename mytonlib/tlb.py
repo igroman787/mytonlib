@@ -136,7 +136,6 @@ class TlbSchemes:
 			else:
 				result[var_name] = var_value
 			self.buff_result.update(result)
-		result.to_class()
 		return result
 	#end define
 	
@@ -366,7 +365,7 @@ class TlbSchemes:
 			s2 = s + type_bit * n
 		#print(f"deser_hm_label: m:{m}, n:{n}, s:`{s}` -> s2:`{s2}`")
 		if n > m:
-			raise Exception("HmLabel error: `n` must be <= `m`")
+			raise Exception(f"HmLabel error: {n} must be <= {m}")
 		return n, s2
 	#end define
 	
@@ -659,11 +658,11 @@ class TlbSchemes:
 			virtual_hash = slice.read(256).hex
 			depth = slice.read(16).uint
 			var_value = None
-		elif slice.compare_byte_prefix('02', move_bit_pos=False):
+		elif slice.compare_byte_prefix('02', move_pos=False):
 			# deserialize MerkleUpdate according to scheme
 			slice.special = False
 			var_value = self.deser_types(slice, var_type, subvars)
-		elif slice.compare_byte_prefix('03', move_bit_pos=False):
+		elif slice.compare_byte_prefix('03', move_pos=False):
 			# deserialize MERKLE_PROOF according to scheme
 			slice.special = False
 			var_value = self.deser_types(slice, var_type, subvars)

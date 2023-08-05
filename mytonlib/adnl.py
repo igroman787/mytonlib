@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf_8 -*-
 
-import sys
 from os.path import isdir, dirname, join
 import time
 import json
@@ -116,6 +115,7 @@ class AdnlUdpClient():
 		# create PacketContents message with signature
 		packet_contents.flags = self.set_flags("flags.0,3,4,6,7,8,10,11")
 		packet_contents.signature = self.sign_message(self.local_private_key, packet_contents_message)
+		buff = self.sign_message(self.local_private_key, packet_contents_message)
 		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
 		#print(f"packet_contents_message: {packet_contents_message.hex()}")
 		
@@ -286,7 +286,7 @@ class AdnlTcpClient:
 	#end define
 	
 	def __str__(self):
-		return f"<AdnlTcpClient {self.host}:{self.port}, ping={self.ping_result}, rc={sys.getrefcount(self)}>"
+		return f"<AdnlTcpClient {self.host}:{self.port}, ping={self.ping_result}>"
 	#end define
 	
 	def __del__(self):
@@ -551,9 +551,11 @@ class AdnlTcpClient:
 		else:
 			print("Wow. Recreating the request id")
 			self._wait()
-		while self.queue.index(request_id) > 0:
+		for i in range(300):
+			if self.queue.index(request_id) == 0:
+				return request_id
 			time.sleep(0.01)
-		return request_id
+		raise Exception(f"adnl wait error: timeoute. self.queue: {self.queue}")
 	#end define
 	
 	def _free(self, request_id):
@@ -726,9 +728,8 @@ class AdnlTcpClient:
 		shard_state_proof = self.tlb_schemes.deserialize(proof_cell[0], expected="ShardStateProof")
 		#print(f"shard_state_proof: {json.dumps(shard_state_proof, indent=4)}")
 		account_descr = shard_state_proof.virtual_root.accounts.get(hex2dec(addr))
-		account_state["last_trans_lt"] = account_descr.last_trans_lt
-		account_state["last_trans_hash"] = account_descr.last_trans_hash
-		account_state.to_class()
+		account_state.last_trans_lt = account_descr.last_trans_lt
+		account_state.last_trans_hash = account_descr.last_trans_hash
 		return account_state
 	#end define
 	
@@ -751,12 +752,11 @@ class AdnlTcpClient:
 		for workchain, shards_list in data.items():
 			for shard_descr in shards_list:
 				shard = Dict()
-				shard["workchain"] = workchain
-				shard["shard"] = shard_descr.next_validator_shard
-				shard["seqno"] = shard_descr.seq_no
-				shard["root_hash"] = shard_descr.root_hash
-				shard["file_hash"] = shard_descr.file_hash
-				shard.to_class()
+				shard.workchain = workchain
+				shard.shard = shard_descr.next_validator_shard
+				shard.seqno = shard_descr.seq_no
+				shard.root_hash = shard_descr.root_hash
+				shard.file_hash = shard_descr.file_hash
 				shards.append(shard)
 		return shards
 	#end define

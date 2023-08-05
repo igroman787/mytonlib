@@ -79,13 +79,12 @@ class AdnlTcpClientWithBalancer:
 		host = int2ip(config_liteserver.ip)
 		adnl.connect(host, config_liteserver.port, config_liteserver.id.key)
 		liteserver = Dict()
-		liteserver["index"] = index
-		liteserver["free"] = True
-		liteserver["adnl"] = adnl
-		liteserver["low_level"] = 0
-		liteserver["cmd"] = None
-		liteserver["last_use"] = int(time.time())
-		liteserver.to_class()
+		liteserver.index = index
+		liteserver.free = True
+		liteserver.adnl = adnl
+		liteserver.low_level = 0
+		liteserver.cmd = None
+		liteserver.last_use = int(time.time())
 		self.liteservers.append(liteserver)
 	#end define
 	
@@ -258,6 +257,12 @@ class AdnlTcpClientWithBalancer:
 			temp_liteservers[liteserver.index] += 1
 		#end for
 		
+		config_liteservers = self.global_config.liteservers
+		for index in range(len(config_liteservers)):
+			if index not in temp_liteservers:
+				temp_liteservers[index] = 0
+		#end for
+		
 		if len(temp_liteservers) == 0:
 			print(f"self.liteservers: {self.liteservers}")
 			print(f"temp_liteservers: {temp_liteservers}")
@@ -266,8 +271,6 @@ class AdnlTcpClientWithBalancer:
 		
 		sorted_temp_liteservers = sorted(temp_liteservers.items(), key=lambda item: item[1])
 		index = sorted_temp_liteservers[0][0]
-		
-		config_liteservers = self.global_config.liteservers
 		config_liteserver = config_liteservers[index]
 		self._add_liteserver(index, config_liteserver)
 	#end define
@@ -275,13 +278,11 @@ class AdnlTcpClientWithBalancer:
 	def _lock_liteserver(self, liteserver):
 		liteserver.last_use = int(time.time())
 		liteserver.free = False
-		liteserver.to_dict()
 	#end define
 	
 	def _unlock_liteserver(self, liteserver):
 		liteserver.free = True
 		liteserver.cmd = None
-		liteserver.to_dict()
 	#end define
 	
 	def _try(self, func, *args, **kwargs):
@@ -310,6 +311,15 @@ class AdnlTcpClientWithBalancer:
 				message_list.append(message)
 		message_list = [message for message in message_list if message != None]
 		return message_list
+	#end define
+	
+	def _adnl_request_test(self, func_name, *args, **kwargs):
+		err = None
+		liteserver = self._get_free_liteserver()
+		liteserver.cmd = f"{func_name}{args}"
+		func = getattr(liteserver.adnl, func_name)
+		result = func(*args, **kwargs)
+		return result
 	#end define
 	
 	def _adnl_request(self, func_name, *args, **kwargs):
@@ -385,5 +395,9 @@ class AdnlTcpClientWithBalancer:
 	
 	def lookup_block(self, workchain, shard, seqno=-1, lt=None, utime=None):
 		return self._adnl_request("lookup_block", workchain, shard, seqno, lt, utime)
+	#end define
+	
+	def send_ext_msg(self, body):
+		return self._adnl_request("send_ext_msg", body)
 	#end define
 #end class

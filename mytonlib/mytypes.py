@@ -28,53 +28,38 @@ class Dict(dict):
 		for item in args:
 			self._parse_dict(item)
 		self._parse_dict(kwargs)
-		self.to_class()
 	#end define
-	
-	def to_class(self):
-		for key, value in self.items():
-			setattr(self, key, value)
-		#end for
-	#end define
-	
-	def to_dict(self):
-		self["@type"] = self.__class__.__name__
-		for key, value in self.__dict__.items():
-			self[key] = self._json_value(value)
-			#if type(value) == bytes:
-			#	self["bin"] = BitStream(value).bin
-		#end for
-	#end define
-	
-	def _json_value(self, value):
-		if type(value) == bytes:
-			value = value.hex()
-		elif type(value) == BitStream:
-			value = value.hex
-		return value
-	#end define
-	
+
 	def _parse_dict(self, d):
 		for key, value in d.items():
-			if type(value) == dict:
+			if type(value) in [dict, Dict]:
 				value = Dict(value)
 			if type(value) == list:
 				value = self._parse_list(value)
 			self[key] = value
 	#end define
-	
-	def _parse_list(self, l):
+
+	def _parse_list(self, lst):
 		result = list()
-		for value in l:
-			if type(value) == dict:
+		for value in lst:
+			if type(value) in [dict, Dict]:
 				value = Dict(value)
 			result.append(value)
 		return result
+	#end define
+
+	def __setattr__(self, key, value):
+		self[key] = value
+	#end define
+
+	def __getattr__(self, key):
+		return self.get(key)
 	#end define
 #end class
 
 class Cell(Dict):
 	def __init__(self, data=None):
+		self["@type"] = "Cell"
 		self.special = False
 		self.bits_len = 0
 		self.level = 0
@@ -164,13 +149,13 @@ class Cell(Dict):
 
 class Slice(Cell):
 	def __init__(self, cell):
+		self["@type"] = "Slice"
 		self.special = cell.special
 		self.bits_len = cell.bits_len
 		self.level = cell.level
 		self.bit_stream = BitStream(cell.data)
 		self.refs = cell.refs
 		self.refs_pos = 0
-		self.to_dict()
 	#end define
 	
 	def __str__(self):
@@ -231,23 +216,23 @@ class Slice(Cell):
 		return result
 	#end define
 	
-	def compare_bit_prefix(self, prefix_bit, move_bit_pos=True):
+	def compare_bit_prefix(self, prefix_bit, move_pos=True):
 		bit_len = self.get_prefix_bit_len(prefix_bit)
 		if self.show_bits(bit_len) == prefix_bit or bit_len == 0:
-			if move_bit_pos:
+			if move_pos:
 				self.read_bits(bit_len)
 			return True
 		return False
 	#end define
 	
-	def compare_byte_prefix(self, prefix, move_bit_pos=True):
+	def compare_byte_prefix(self, prefix, move_pos=True):
 		if type(prefix) == bytes:
 			prefix_byte = prefix
 		else:
 			prefix_byte = bytes.fromhex(prefix)
 		byte_len = len(prefix_byte)
 		if self.show_bytes(byte_len) == prefix_byte:
-			if move_bit_pos:
+			if move_pos:
 				self.read_bytes(byte_len)
 			return True
 		return False
@@ -267,7 +252,6 @@ class Slice(Cell):
 		cell.level = self.level
 		cell.data = self.bit_stream.bytes
 		cell.refs = self.refs
-		cell.to_dict()
 		return cell
 	#end define
 	

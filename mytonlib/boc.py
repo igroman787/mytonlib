@@ -134,7 +134,6 @@ def deserialize_boc(input_data):
 		cells[i].level = level_mask
 		cells[i].data = payload
 		cells[i].refs = refs
-		cells[i].to_dict()
 	#end for
 	
 	roots = list()
@@ -143,8 +142,8 @@ def deserialize_boc(input_data):
 			roots.append(cells[y])
 	#end for
 	
-	#if roots_num != len(roots):
-	#	raise Exception(f"deserialize_boc error: roots num ({roots_num}) not match actual num ({len(roots)})")
+	if roots_num != len(roots):
+		raise Exception(f"deserialize_boc error: roots num ({roots_num}) not match actual num ({len(roots)})")
 	#end if
     
 	if len(roots) == 0:
@@ -159,10 +158,9 @@ def deserialize_boc(input_data):
 def parse_flags(byte):
 	a = byte[0] # convert byte to int
 	flags = Dict()
-	flags["has_index"] = a & (1<<7) > 0
-	flags["has_crc32c"] = a & (1<<6) > 0
-	flags["has_cache_bits"] = a & (1<<5) > 0
-	flags.to_class()
+	flags.has_index = a & (1<<7) > 0
+	flags.has_crc32c = a & (1<<6) > 0
+	flags.has_cache_bits = a & (1<<5) > 0
 	ref_sz_bytes  = a & 0b00000111
 	return flags, ref_sz_bytes
 #end define

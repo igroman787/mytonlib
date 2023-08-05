@@ -146,7 +146,6 @@ class TlScheme:
 		self.buff_result = result
 		for var_name, var_type in self.vars.items():
 			result[var_name] = self.deser_types(byte_stream, var_type, send_data)
-		result.to_class()
 		result["@type"] = self.name
 		return result
 	#end define
@@ -381,6 +380,8 @@ def align_bytes(data, align_len=4):
 #end define
 
 def pack_bytes(data):
+	if type(data) != bytes:
+		raise Exception(f"pack_bytes error: data is not bytes. data: {data}")
 	data_len_bytes = tl_len(data)
 	data = align_bytes(data_len_bytes + data)
 	return data
