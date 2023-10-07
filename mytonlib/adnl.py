@@ -24,6 +24,7 @@ from .tlb import TlbSchemes
 from .boc import serialize_boc, deserialize_boc
 from .utils import parse_addr, hex2dec
 from .mytypes import Dict, Thread
+from .tvm.tvm import TVM
 
 
 class AdnlUdpClient():
@@ -189,8 +190,8 @@ class AdnlUdpClient():
 		packet_contents_message = scheme.id + scheme.serialize(**packet_contents)
 		checksum = self._sha256(packet_contents_message)
 		encrypted_message = self._aes_encrypt_with_secret(packet_contents_message, channel_tx_key, checksum)
-		channel_tx_public_key = self.get_public_key(channel_tx_key)
-		tx_public_key_id = self._get_id(channel_tx_public_key)
+		#channel_tx_public_key = self.get_public_key(channel_tx_key)
+		tx_public_key_id = self._get_id(channel_tx_key, scheme_name="pub.aes")
 		send_data = tx_public_key_id + checksum + encrypted_message
 		print(f"send_data: {send_data.hex()}")
 		self.sock.send(send_data)
@@ -251,9 +252,9 @@ class AdnlUdpClient():
 		return cipher
 	#end define
 	
-	def _get_id(self, pubkey):
-		magic = bytes.fromhex("c6b41348") # 0x4813b4c6
-		result = self._sha256(magic + pubkey)
+	def _get_id(self, pubkey, scheme_name="pub.ed25519"):
+		scheme = self.tl_schemes.get_scheme_by_name(scheme_name)
+		result = self._sha256(scheme.id + pubkey)
 		return result
 	#end define
 	
@@ -453,9 +454,9 @@ class AdnlTcpClient:
 		return hashlib.sha256(data).digest()
 	#end define
 
-	def _get_id(self, pubkey):
-		magic = bytes.fromhex("c6b41348") # 0x4813b4c6
-		result = self._sha256(magic + pubkey)
+	def _get_id(self, pubkey, scheme_name="pub.ed25519"):
+		scheme = self.tl_schemes.get_scheme_by_name(scheme_name)
+		result = self._sha256(scheme.id + pubkey)
 		return result
 	#end define
 	
@@ -701,6 +702,28 @@ class AdnlTcpClient:
 		data = self.tlb_schemes.deserialize(data_cell, expected="VmStack")
 		#print(f"run_smc_method data: {json.dumps(data, indent=4)}")
 		result = data.stack
+		
+		# run smc method local
+		local_result = self._run_smc_method_local(input_addr, method_id, params, block_id_ext)
+		if result != local_result:
+			raise Exception(f"run_smc_method error: Result doesn't match: `{result}` != `{local_result}`")
+		#end if
+		
+		if len(result) == 1:
+			result = result.pop()
+		return result
+	#end define
+	
+	def _run_smc_method_local(self, input_addr, method_id, params, block_id_ext):
+		accoun_state = self.get_account_state(input_addr, block_id_ext)
+		tvm = TVM(accoun_state=accoun_state, params=params, selector=method_id)
+		result = tvm.run()
+		return result
+	#end define
+	
+	def run_smc_method_local(self, input_addr, method_name, params=None, block_id_ext=None):
+		method_id = self.get_method_id(method_name)
+		result = self._run_smc_method_local(input_addr, method_id, params, block_id_ext)
 		if len(result) == 1:
 			result = result.pop()
 		return result

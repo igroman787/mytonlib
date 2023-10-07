@@ -6,6 +6,8 @@ from .stack import get_from_tvm_list, swap_items_in_tvm_list
 from ..mytypes import Slice, Cell
 from .app_crypto import *
 from .const_int import *
+from .dict_get import DICTGET, DICTIGET
+from .dict_special import DICTIGETJMP, DICTIGETJMPZ
 
 class Instruction:
 	def __init__(self, **kwargs):
@@ -449,8 +451,16 @@ def THROWIF_SHORT(code_slice, tvm):
 def THROWIFNOT_SHORT(code_slice, tvm):
 	buff = code_slice.read(6)
 	f = get_from_tvm_list(tvm.stack, 0)
-	#if f == 0:
-		#raise Exception(f"THROWIFNOT_SHORT exception {buff.uint}")
+	if f == 0:
+		raise Exception(f"THROWIFNOT_SHORT exception {buff.uint}")
+#end define
+
+def DICTPUSHCONST(code_slice, tvm):
+	buff = code_slice.read(10)
+	cell = code_slice.read_ref()
+	print("DICTPUSHCONST", buff.uint, cell)
+	tvm.stack.append(cell)
+	tvm.stack.append(buff.uint)
 #end define
 
 def GETPARAM(code_slice, tvm):
@@ -466,6 +476,7 @@ def SETCP0(code_slice, tvm):
 #end define
 
 def init_instructions(instructions):
+	# https://github.com/ton-community/ton-docs/blob/main/docs/learn/tvm-instructions/instructions.csv
 	instructions.append(Instruction(prefix = '00', action = NOP))
 	instructions.append(Instruction(prefix = '01', action = SWAP))
 	instructions.append(Instruction(prefix = '0', action = XCHG_0I))
@@ -531,7 +542,20 @@ def init_instructions(instructions):
 	instructions.append(Instruction(prefix = 'ED4', action = PUSHCTR))
 	instructions.append(Instruction(prefix = 'F2_', prefix_bit="1111001001", action = THROWIF_SHORT))
 	instructions.append(Instruction(prefix = 'F2_', prefix_bit="1111001010", action = THROWIFNOT_SHORT))
+	
+	# dict_get
+	instructions.append(Instruction(prefix = 'F40A', action = DICTGET))
+	instructions.append(Instruction(prefix = 'F40C', action = DICTIGET))
+	
+	# dict_special
+	instructions.append(Instruction(prefix = 'F4A0', action = DICTIGETJMP))
+	instructions.append(Instruction(prefix = 'F4BC', action = DICTIGETJMPZ))
+	instructions.append(Instruction(prefix = 'F4A4_', prefix_bit="11110100101001", action = DICTPUSHCONST))
+	
+	# app_config
 	instructions.append(Instruction(prefix = 'F82', action = GETPARAM))
+	
+	# app_crypto
 	instructions.append(Instruction(prefix = 'F900', action = HASHCU))
 	instructions.append(Instruction(prefix = 'F901', action = HASHSU))
 	instructions.append(Instruction(prefix = 'F902', action = SHA256U))

@@ -313,16 +313,7 @@ class AdnlTcpClientWithBalancer:
 		return message_list
 	#end define
 	
-	def _adnl_request_test(self, func_name, *args, **kwargs):
-		err = None
-		liteserver = self._get_free_liteserver()
-		liteserver.cmd = f"{func_name}{args}"
-		func = getattr(liteserver.adnl, func_name)
-		result = func(*args, **kwargs)
-		return result
-	#end define
-	
-	def _adnl_request(self, func_name, *args, **kwargs):
+	def _adnl_request_new(self, func_name, *args, **kwargs):
 		err = None
 		liteserver = self._get_free_liteserver()
 		liteserver.cmd = f"{func_name}{args}"
@@ -340,7 +331,7 @@ class AdnlTcpClientWithBalancer:
 			raise Exception(err)
 	#end define
 	
-	def _adnl_request_old(self, func_name, *args, **kwargs):
+	def _adnl_request(self, func_name, *args, **kwargs):
 		liteserver = self._get_free_liteserver()
 		liteserver.cmd = f"{func_name}{args}"
 		func = getattr(liteserver.adnl, func_name)
@@ -363,6 +354,10 @@ class AdnlTcpClientWithBalancer:
 	
 	def run_smc_method(self, input_addr, method_name, params=None, block_id_ext=None):
 		return self._adnl_request("run_smc_method", input_addr, method_name, params, block_id_ext)
+	#end define
+	
+	def run_smc_method_local(self, input_addr, method_name, params=None, block_id_ext=None):
+		return self._adnl_request("run_smc_method_local", input_addr, method_name, params, block_id_ext)
 	#end define
 	
 	def get_all_shards_info(self, block_id_ext=None):

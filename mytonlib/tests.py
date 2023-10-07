@@ -23,20 +23,20 @@ def test_lite_client():
 
 	# time - Get server time
 	data = adnl.get_time()
-	print("get_time:", json.dumps(data, indent=4))
+	print("get_time:", data)
 
 	# last - Get last block and state info from server
 	mc_info = adnl.get_masterchain_info()
-	print("get_masterchain_info:", json.dumps(mc_info, indent=4))
+	print("get_masterchain_info:", mc_info)
 	print(f"mc_info.last.seqno: {mc_info.last.seqno}")
 
 	# getaccount - Loads the most recent state of specified account
 	data = adnl.get_account_state("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N")
-	print("get_account_state:", json.dumps(data, indent=4))
+	print("get_account_state:", data)
 	
 	# runmethod - Runs GET method <method-id> of account <addr> with specified parameters
 	data = adnl.run_smc_method("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", "seqno")
-	print("run_smc_method:", json.dumps(data, indent=4))
+	print("run_smc_method:", data)
 	
 	# dnsresolve - Resolves a domain starting from root dns smart contract
 	#*
@@ -46,19 +46,19 @@ def test_lite_client():
 	
 	# allshards - Shows shard configuration from the most recent masterchain state or from masterchain state corresponding to <block-id-ext>
 	data = adnl.get_all_shards_info()
-	print("get_all_shards_info:", json.dumps(data, indent=4))
+	print("get_all_shards_info:", data)
 	
 	# getconfig [<param>...]  Shows specified or all configuration parameters from the latest masterchain state
 	data = adnl.get_config_params(4)
-	print("get_config_params:", json.dumps(data, indent=4))
+	print("get_config_params:", data)
 	
 	# gethead - Shows block header for <block-id-ext>
 	data = adnl.get_block_header()
-	print("get_block_header:", json.dumps(data, indent=4))
+	print("get_block_header:", data)
 	
 	# getblock - Downloads block
 	block_info = adnl.get_block()
-	print("get_block:", json.dumps(block_info, indent=4))
+	print("get_block:", block_info)
 	
 	# DELETE
 	# getstate - Downloads state corresponding to specified block
@@ -67,28 +67,28 @@ def test_lite_client():
 	
 	# lasttrans - Shows or dumps specified transaction and several preceding ones
 	data = adnl.get_last_transactions("EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N", 1)
-	print("get_last_transactions:", json.dumps(data, indent=4))
+	print("get_last_transactions:", data)
 	
 	# listblocktrans - Lists block transactions, starting immediately after or before the specified one
 	block_trans = adnl.get_block_transactions(mc_info.last)
-	print("get_block_transactions:", json.dumps(block_trans, indent=4))
+	print("get_block_transactions:", data)
 	
 	# dumptrans - Dumps one transaction of specified account
 	account_id = {"workchain": mc_info.last.workchain, "id": block_trans[0].account}
 	data = adnl.get_one_transaction(mc_info.last, account_id, block_trans[0].lt)
-	print("get_one_transaction:", json.dumps(data, indent=4))
+	print("get_one_transaction:", data)
 	
 	# byseqno - Looks up a block by workchain, shard and seqno, and shows its header
 	data = adnl.lookup_block(mc_info.last.workchain, mc_info.last.shard, mc_info.last.seqno-10)
-	print("byseqno:", json.dumps(data, indent=4))
+	print("byseqno:", data)
 	
 	# bylt - Looks up a block by workchain, shard and logical time, and shows its header
 	data = adnl.lookup_block(mc_info.last.workchain, mc_info.last.shard, lt=block_info.info.start_lt)
-	print("bylt:", json.dumps(data, indent=4))
+	print("bylt:", data)
 	
 	# byutime - Looks up a block by workchain, shard and creation time, and shows its header
 	data = adnl.lookup_block(mc_info.last.workchain, mc_info.last.shard, utime=block_info.info.gen_utime-100)
-	print("byutime:", json.dumps(data, indent=4))
+	print("byutime:", data)
 	
 	# creatorstats - Lists block creator statistics by validator public key
 	
@@ -114,7 +114,7 @@ def test_lite_client():
 	# sendfile - Load a serialized message from <filename> and send it to server
 	body = bytes.fromhex("b5ee9c7241010101000e0000180000000400000000628f328d83ad456c")
 	data = adnl.send_ext_msg(body)
-	print("send_ext_msg:", json.dumps(data, indent=4))
+	print("send_ext_msg:", data)
 #end define
 
 def test_udp():
@@ -156,6 +156,14 @@ def test_run_smc_method():
 	global_config_url = "https://ton-blockchain.github.io/global.config.json"
 	adnl = AdnlTcpClientWithBalancer(global_config_url)
 	
+	data = adnl.run_smc_method("Ef9X6ObXojpUZza3NiS2TnRJ4KR7ler8cOjMRBt_swy4Qp2j", "seqno")
+	print("seqno:", data)
+#end define
+
+def test_run_smc_method2():
+	global_config_url = "https://ton-blockchain.github.io/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
+	
 	data = adnl.run_smc_method("kQBL2_3lMiyywU17g-or8N7v9hDmPCpttzBPE2isF2GTziky", "mult", [5, 4])
 	print("run_smc_method:", data)
 
@@ -168,13 +176,27 @@ def test_run_smc_method():
 	print("data.value:", data.value)
 #end define
 
-def test_run_smc_method2():
+def test_run_smc_method3():
 	global_config_url = "https://ton-blockchain.github.io/global.config.json"
 	adnl = AdnlTcpClientWithBalancer(global_config_url)
 	
+	smc_addr = "Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn"
 	mc_info = adnl.get_masterchain_info()
 	block_id_ext = adnl.lookup_block(workchain=mc_info.last.workchain, shard=mc_info.last.shard, utime=1677006000)
-	data = adnl.run_smc_method("Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn", "list_proposals", block_id_ext=block_id_ext)
+	data = adnl.run_smc_method(smc_addr, "list_proposals", block_id_ext=block_id_ext)
+	print("mc_info:", json.dumps(mc_info, indent=4))
+	print("block_id_ext:", json.dumps(block_id_ext, indent=4))
+	print("run_smc_method:", data)
+#end define
+
+def test_run_smc_method4():
+	global_config_url = "https://ton-blockchain.github.io/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
+	
+	smc_addr = "Ef9VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVbxn"
+	mc_info = adnl.get_masterchain_info()
+	block_id_ext = adnl.lookup_block(workchain=mc_info.last.workchain, shard=mc_info.last.shard, utime=1677006000)
+	data = adnl.run_smc_method_local(smc_addr, "list_proposals", block_id_ext=block_id_ext)
 	print("mc_info:", json.dumps(mc_info, indent=4))
 	print("block_id_ext:", json.dumps(block_id_ext, indent=4))
 	print("run_smc_method:", data)
@@ -239,6 +261,8 @@ def test_tvm():
 	message_cell = Cell(bytes.fromhex("0AF667A99CA0CBCC036EAF9094450F56EDDA12879C3A1F89D8E9F1D875CA43990D8CBB9D96B5F915D39461DBD8AF04440FF10CC73F475265AC4B2C1B143138000000000103"))
 	message_cell2 = Cell(bytes.fromhex("627FA08D8AABA06112661A477E0409F1CE4F93E2F07B041903087C73E774D64F8BDA987A120000000000000000000000000000"))
 	message_cell.add_ref(message_cell2)
+	message_balance = 1000
+	selector = -1 # External message
 	
 	import hashlib
 	from nacl.signing import SigningKey
@@ -256,8 +280,24 @@ def test_tvm():
 	print("hash_bytes2:", hash_bytes2.hex())
 	print("cell_hash:", message_cell.hash().hex)
 	
-	tvm = TVM(accoun_state.storage.state.code, accoun_state.storage.state.data, message_cell)
+	tvm = TVM(accoun_state=accoun_state, message_balance=1000, message_cell=message_cell, selector=selector)
 	tvm.run()
+#end define
+
+def test_tvm2():
+	global_config_url = "/usr/bin/ton/global.config.json"
+	adnl = AdnlTcpClientWithBalancer(global_config_url)
+	accoun_state = adnl.get_account_state("Ef9X6ObXojpUZza3NiS2TnRJ4KR7ler8cOjMRBt_swy4Qp2j")
+	
+	tlb_schemes = TlbSchemes()
+	tlb_schemes.load_schemes("/usr/src/ton/tl/generate/scheme/")
+	message_cell = tlb_schemes.serialize(required="VmStack", params=[])
+	method_name = "seqno"
+	selector = AdnlTcpClient.get_method_id(None, method_name)
+	
+	tvm = TVM(accoun_state=accoun_state, message_cell=message_cell, selector=selector)
+	result = tvm.run()
+	print("result:", result)
 #end define
 
 def test_cell_hash():

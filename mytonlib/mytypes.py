@@ -49,6 +49,7 @@ class Dict(dict):
 	#end define
 
 	def __setattr__(self, key, value):
+		self.__dict__[key] = value
 		self[key] = value
 	#end define
 
@@ -144,6 +145,18 @@ class Cell(Dict):
 		
 		depth = max(depths_list)
 		return depth
+	#end define
+	
+	def dump(self):
+		result = Dict()
+		result.special = self.special
+		result.bits_len = self.bits_len
+		result.level = self.level
+		result.data = self.data.hex()
+		result.refs = list()
+		for ref in self.refs:
+			result.refs.append(ref.dump())
+		return result
 	#end define
 #end class
 
