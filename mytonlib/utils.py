@@ -112,6 +112,27 @@ def IsAddrFull(addr):
 	return False
 #end define
 
+def parse_pubkey(pubkey):
+	result = parse_hex(pubkey) or parse_b64(pubkey)
+	if result == None:
+		raise Exception("parse_pubkey error: pubkey not base64 or HEX")
+	return result
+#end define
+
+def parse_hex(hex_str):
+	try:
+		return bytes.fromhex(hex_str)
+	except: pass
+#end define
+
+def parse_b64(b64_str):
+	try:
+		return base64.b64decode(b64_str)
+	except: pass
+#end define
+
+
+
 class bcolors:
 	'''This class is designed to display text in color format'''
 	red = "\033[31m"
